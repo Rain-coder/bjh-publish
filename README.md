@@ -20,12 +20,12 @@ cp config.example.toml config.toml   # 填 deepseek_api_key（https://platform.d
 
 ```bash
 bjh login                                    # 打开非无头浏览器，扫码/登录后在终端按 Enter 确认（Cookie 存 data/accounts/default.json）
-bjh fetch --keyword "职场焦虑"               # 抓热文入库
+bjh fetch "职场焦虑"                        # 抓热文入库
 bjh create --count 1                         # 生成文案+视频
 bjh publish --dry-run                        # 发布演练（截图确认，不真发）
 bjh publish --now                            # 立即真发 1 条
 bjh publish --daemon                         # 常驻调度（日上限+随机间隔+黄金时段）
-bjh run --keyword "职场焦虑" --count 3       # 一键全流程（抓→做→入队）
+bjh run "职场焦虑" --count 3                 # 一键全流程（抓→做→入队）
 bjh web                                      # 管理面板 http://127.0.0.1:8787
 ```
 
@@ -33,7 +33,7 @@ bjh web                                      # 管理面板 http://127.0.0.1:878
 
 ```bash
 bjh login
-bjh fetch --keyword "职场焦虑" --pages 1     # 确认抓到热文
+bjh fetch "职场焦虑" --pages 1               # 确认抓到热文
 bjh create --count 1                         # 确认 data/videos/draft_N/N.mp4 可播放、字幕正确
 bjh web                                      # 面板核对
 bjh publish --dry-run                        # data/screenshots/dryrun_*.png 核对表单已填好
