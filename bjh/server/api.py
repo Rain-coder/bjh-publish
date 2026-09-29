@@ -65,8 +65,21 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
 
     @app.post("/api/posts")
     def queue(body: QueueReq):
+        v = db.get_video(body.video_id)
+        if not v:
+            raise HTTPException(404, "视频不存在")
+        if v.status != "ok":
+            raise HTTPException(400, f"视频状态异常: {v.status}")
         pid = db.queue_post(body.video_id, 1, datetime.now().isoformat(timespec="seconds"))
         return {"post_id": pid}
+
+    @app.get("/api/screenshots/{name}")
+    def screenshot(name: str):
+        base = (Path(cfg.data_dir) / "screenshots").resolve()
+        target = (base / name).resolve()
+        if base not in target.parents or not target.is_file():
+            raise HTTPException(404, "截图不存在")
+        return FileResponse(target, media_type="image/png")
 
     @app.get("/api/accounts")
     def accounts():

@@ -71,7 +71,7 @@ def publish(now: bool = typer.Option(False, "--now", help="立即发布最新未
                 {p.video_id for p in db.list_posts(limit=500)}]
         if not vids:
             raise typer.Exit("没有待发视频，先 bjh create")
-        db.queue_post(vids[0], acc.id, datetime.now().isoformat(timespec="seconds"))
+        db.queue_post(vids[-1], acc.id, datetime.now().isoformat(timespec="seconds"))  # 最旧优先，与 daemon FIFO 一致
     if daemon:
         typer.echo("调度器运行中（Ctrl-C 退出）...")
         asyncio.run(run_daemon(db, cfg, dry_run))

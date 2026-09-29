@@ -22,6 +22,21 @@ class PublishError(Exception):
         self.screenshot = screenshot
 
 
+# Cookie 失效判定：跳转到登录/通行证页即视为过期（spec §5）
+LOGIN_URL_MARKS = ("passport.baidu.com", "baijiahao.baidu.com/builder/rc/login")
+
+
+def is_login_url(url: str) -> bool:
+    return any(m in url for m in LOGIN_URL_MARKS)
+
+
+class LoginExpiredError(PublishError):
+    """Cookie 失效被重定向到登录页；调用方应将账号标记为 expired。"""
+
+    def __init__(self, msg: str = "Cookie 已失效（跳转到登录页）", screenshot: str | None = None):
+        super().__init__(msg, screenshot)
+
+
 async def _shot(page: Page, shot_dir: Path, name: str) -> str:
     shot_dir.mkdir(parents=True, exist_ok=True)
     p = shot_dir / f"{name}.png"
@@ -45,6 +60,9 @@ async def publish_video(video_path: Path, title: str, tags: list[str],
         try:
             await page.goto(PUBLISH_URL, timeout=30000)
             await page.wait_for_load_state("networkidle")
+            if is_login_url(page.url):
+                shot = await _shot(page, shot_dir, f"login_expired_{video_path.stem}")
+                raise LoginExpiredError(screenshot=shot)
             await _rand()
             # 1. 上传
             upload = page.locator(SEL["upload_input"]).first
@@ -75,6 +93,8 @@ async def publish_video(video_path: Path, title: str, tags: list[str],
             await browser.close()
             return url
         except Exception as e:
+            if isinstance(e, LoginExpiredError):
+                raise
             shot = None
             try:
                 shot = await _shot(page, shot_dir, f"fail_{video_path.stem}")

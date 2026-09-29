@@ -69,10 +69,15 @@ def create_videos(db: DB, cfg: Config, count: int = 1,
 def fetch_and_store(db: DB, keyword: str, pages: int, cfg: Config) -> int:
     import asyncio
     from bjh.fetcher.baijiahao import fetch_topics
+    from bjh.publisher.baijiahao import LoginExpiredError
     acc = db.get_account("default") or (db.list_accounts() or [None])[0]
     if not acc:
         raise SystemExit("无账号，请先 bjh login")
-    raw = asyncio.run(fetch_topics(keyword, pages, acc))
+    try:
+        raw = asyncio.run(fetch_topics(keyword, pages, acc))
+    except LoginExpiredError:
+        db.set_account_status(acc.id, "expired")
+        raise SystemExit(f"账号 [{acc.name}] Cookie 已失效，已标记 expired，请重新 bjh login")
     seen = {t.title for t in db.list_topics(keyword, limit=500)}
     fresh = [t for t in dedupe_topics(raw) if t.title not in seen]
     for t in fresh:

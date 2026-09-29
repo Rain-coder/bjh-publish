@@ -52,3 +52,26 @@ def test_patch_account_and_config(tmp_path, monkeypatch):
     assert r.json()["interval_min_min"] == 30
     toml = (tmp_path / "config.toml").read_text(encoding="utf-8")
     assert "interval_min_min = 30" in toml
+
+
+def test_screenshot_route_serves_and_blocks_traversal(tmp_path, monkeypatch):
+    db, c = make(tmp_path, monkeypatch)
+    shots = tmp_path / "data" / "screenshots"
+    shots.mkdir(parents=True)
+    (shots / "fail_x.png").write_bytes(b"png")
+    r = c.get("/api/screenshots/fail_x.png")
+    assert r.status_code == 200 and r.content == b"png"
+    assert c.get("/api/screenshots/nope.png").status_code == 404
+    # 路径穿越与目录本身均被拒
+    assert c.get("/api/screenshots/..%2F..%2Ft.db").status_code == 404
+    assert c.get("/api/screenshots/..%2Faccounts").status_code == 404
+
+
+def test_queue_post_validates_video(tmp_path, monkeypatch):
+    db, c = make(tmp_path, monkeypatch)
+    assert c.post("/api/posts", json={"video_id": 999}).status_code == 404
+    v = db.get_video(1)
+    db.conn.execute("UPDATE videos SET status='failed' WHERE id=1")
+    db.conn.commit()
+    assert c.post("/api/posts", json={"video_id": 1}).status_code == 400
+    assert db.list_posts() == []

@@ -50,7 +50,7 @@
         <template x-for="p in posts"><tr class="border-b border-gray-800">
           <td x-text="'#'+p.id"></td><td x-text="p.status"></td>
           <td x-text="p.scheduled_at"></td><td x-text="p.bjh_url||p.error||''"></td>
-          <td><a x-show="p.screenshot_path" :href="p.screenshot_path" class="underline">截图</a></td>
+          <td><a x-show="p.screenshot_path" :href="'/api/screenshots/'+encodeURIComponent(p.screenshot_path.split('/').pop())" target="_blank" class="underline">截图</a></td>
         </tr></template>
       </tbody></table>
     </section>

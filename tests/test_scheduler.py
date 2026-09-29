@@ -4,7 +4,7 @@ import pytest
 from bjh.config import Config
 from bjh.db import DB
 from bjh.models import Draft, Video
-from bjh.publisher.baijiahao import PublishError
+from bjh.publisher.baijiahao import LoginExpiredError, PublishError
 from bjh.scheduler import run_once
 
 
@@ -80,3 +80,46 @@ async def test_run_once_expired_account(tmp_path):
 async def test_run_once_idle(tmp_path):
     db, acc, v = seed(tmp_path)
     assert await run_once(db, Config(), publish_fn=fake_ok) == "idle"
+
+
+async def fake_login_expired(video_path, title, tags, state_path, shot_dir, dry_run=False):
+    raise LoginExpiredError()
+
+
+async def fake_bad_words(video_path, title, tags, state_path, shot_dir, dry_run=False):
+    raise AssertionError("敏感词帖子不应调用 publish_fn")
+
+
+def test_fail_stuck_publishing(tmp_path):
+    db, acc, v = seed(tmp_path)
+    pid = db.queue_post(v.id, acc.id, past())
+    post = db.due_posts(past())[0]
+    post.status = "publishing"
+    db.update_post(post)
+    assert db.fail_stuck_publishing() == 1
+    post = [p for p in db.list_posts() if p.id == pid][0]
+    assert post.status == "failed" and post.error == "中断恢复"
+    assert db.fail_stuck_publishing() == 0  # 幂等
+
+
+async def test_run_once_cookie_expired_marks_account(tmp_path):
+    db, acc, v = seed(tmp_path)
+    pid = db.queue_post(v.id, acc.id, past())
+    result = await run_once(db, Config(), publish_fn=fake_login_expired)
+    assert result == "cookie-expired"
+    assert db.get_account_by_id(acc.id).status == "expired"
+    post = [p for p in db.list_posts() if p.id == pid][0]
+    assert post.status == "failed" and "Cookie" in post.error
+
+
+async def test_run_once_sensitive_guard_blocks_publish(tmp_path):
+    db, acc, v = seed(tmp_path)
+    d = db.get_draft(1)
+    d.title = "震惊！必看干货"
+    db.update_draft_title(d.id, d.title)
+    pid = db.queue_post(v.id, acc.id, past())
+    result = await run_once(db, Config(), publish_fn=fake_bad_words)
+    assert result == "sensitive"
+    post = [p for p in db.list_posts() if p.id == pid][0]
+    assert post.status == "failed"
+    assert "震惊" in post.error and "必看" in post.error

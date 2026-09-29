@@ -1,4 +1,5 @@
 # bjh/config.py
+import json
 import os
 import tomllib
 from dataclasses import dataclass, field
@@ -48,8 +49,14 @@ _SAVE_FIELDS = ("deepseek_api_key", "deepseek_base_url", "deepseek_model", "pexe
                 "tts_voice", "daily_limit", "interval_min_min", "interval_max_min")
 
 
+_LIST_FIELDS = ("golden_hours", "sensitive_words")  # 列表字段，JSON 数组即合法 TOML
+
+
 def save_config(cfg: Config, path: str | None = None) -> None:
     p = Path(path or DEFAULT_CONFIG_NAME)
     lines = [f'{f} = "{getattr(cfg, f)}"' if isinstance(getattr(cfg, f), str)
              else f"{f} = {getattr(cfg, f)}" for f in _SAVE_FIELDS]
+    # 列表字段必须保存，否则面板改设置会静默清空敏感词/黄金时段
+    lines += [f"{f} = {json.dumps(getattr(cfg, f), ensure_ascii=False)}"
+              for f in _LIST_FIELDS]
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")

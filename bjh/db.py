@@ -200,6 +200,13 @@ class DB:
             (p.status, p.published_at, p.bjh_url, p.error, p.screenshot_path, p.scheduled_at, p.id))
         self.conn.commit()
 
+    def fail_stuck_publishing(self) -> int:
+        """启动/循环恢复：把中断遗留的 publishing 行标记失败，避免永久卡队列。"""
+        cur = self.conn.execute(
+            "UPDATE posts SET status='failed', error='中断恢复' WHERE status='publishing'")
+        self.conn.commit()
+        return cur.rowcount
+
     def published_today(self, account_id: int) -> int:
         row = self.conn.execute(
             "SELECT COUNT(*) c FROM posts WHERE account_id=? AND status='published' "

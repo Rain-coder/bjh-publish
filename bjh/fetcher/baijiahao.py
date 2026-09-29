@@ -9,6 +9,7 @@ from playwright.async_api import async_playwright
 
 from bjh.config import Config
 from bjh.models import Account, Topic
+from bjh.publisher.baijiahao import is_login_url, LoginExpiredError
 from bjh.writer.topic import heat_score
 
 TopicRaw = namedtuple("TopicRaw", ["title", "url", "author"])
@@ -84,6 +85,9 @@ async def fetch_topics(keyword: str, pages: int, account: Account,
         for pn in range(pages):
             await page.goto(BAIDU_SERP_URL.format(kw=keyword) + (f"&pn={pn * 20}" if pn else ""))
             await page.wait_for_timeout(1500)
+            if is_login_url(page.url):   # Cookie 失效被重定向到登录页
+                await browser.close()
+                raise LoginExpiredError()
             raws = parse_baidu_serp(await page.content(), keyword)
             for r in raws[:10]:
                 try:

@@ -7,8 +7,8 @@ from pathlib import Path
 
 from bjh.config import Config
 from bjh.db import DB
-from bjh.publisher.baijiahao import PublishError, publish_video
-from bjh.risk import next_publish_time
+from bjh.publisher.baijiahao import LoginExpiredError, PublishError, publish_video
+from bjh.risk import contains_sensitive, next_publish_time
 
 log = logging.getLogger("bjh.scheduler")
 
@@ -39,6 +39,16 @@ async def run_once(db: DB, cfg: Config, dry_run: bool = False, publish_fn=None) 
 
     video = db.get_video(post.video_id)
     draft = db.get_draft(video.draft_id)
+
+    # 发布前最终风控：标题/文案敏感词检查（spec §5）
+    hits = contains_sensitive(draft.title, cfg.sensitive_words) or \
+        contains_sensitive(draft.script, cfg.sensitive_words)
+    if hits:
+        post.status, post.error = "failed", f"敏感词拦截: {','.join(hits)}"
+        db.update_post(post)
+        log.warning("敏感词拦截 post=%s words=%s", post.id, hits)
+        return "sensitive"
+
     shot_dir = Path(cfg.data_dir) / "screenshots"
     if dry_run:
         await publish_fn(Path(video.path), draft.title, draft.tags,
@@ -54,6 +64,12 @@ async def run_once(db: DB, cfg: Config, dry_run: bool = False, publish_fn=None) 
             datetime.now().isoformat(timespec="seconds"), url
         db.update_post(post)
         return "published"
+    except LoginExpiredError:
+        db.set_account_status(account.id, "expired")
+        post.status, post.error = "failed", "Cookie 失效，账号已标记 expired"
+        db.update_post(post)
+        log.error("Cookie 失效，账号 %s 标记 expired，post=%s", account.name, post.id)
+        return "cookie-expired"
     except PublishError as e:
         post.status, post.error, post.screenshot_path = "failed", str(e), e.screenshot
         db.update_post(post)
@@ -67,8 +83,12 @@ async def run_once(db: DB, cfg: Config, dry_run: bool = False, publish_fn=None) 
 
 async def run_daemon(db: DB, cfg: Config, dry_run: bool = False) -> None:
     log.info("调度器启动")
+    stuck = db.fail_stuck_publishing()
+    if stuck:
+        log.warning("恢复 %d 条中断遗留的 publishing 记录", stuck)
     while True:
         try:
+            db.fail_stuck_publishing()  # 兜底：上一轮 Ctrl-C/崩溃留下的 publishing
             result = await run_once(db, cfg, dry_run)
             if result != "idle":
                 log.info("run_once -> %s", result)
