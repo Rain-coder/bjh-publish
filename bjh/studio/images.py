@@ -57,7 +57,9 @@ async def fetch_pexels(query: str, count: int, out_dir: Path, api_key: str | Non
         paths = []
         for i, ph in enumerate(photos[:count]):
             url = ph["src"]["portrait"]
-            data = (await client.get(url)).content
+            r2 = await client.get(url)
+            r2.raise_for_status()
+            data = r2.content
             p = out_dir / f"pexels_{i}.jpg"
             p.write_bytes(data)
             paths.append(p)

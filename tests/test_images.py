@@ -45,3 +45,14 @@ async def test_fetch_pexels_downloads(tmp_path, respx_mock):
     from bjh.studio.images import fetch_pexels
     paths = await fetch_pexels("职场", 1, tmp_path, "fake-key")
     assert len(paths) == 1 and paths[0].read_bytes().startswith(b"\xff\xd8")
+
+
+@respx.mock
+@needs_font
+async def test_collect_images_falls_back_on_image_404(tmp_path, respx_mock):
+    respx_mock.get("https://api.pexels.com/v1/search").mock(httpx.Response(200, json={
+        "photos": [{"src": {"portrait": "https://img.example/1.jpg"}}]}))
+    respx_mock.get("https://img.example/1.jpg").mock(httpx.Response(404, content=b"not found"))
+    paths = await collect_images("职场", 1, tmp_path, "fake-key", titles=["标题A"])
+    assert len(paths) == 1 and paths[0].exists()
+    assert paths[0].name == "fallback_0.png"
