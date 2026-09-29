@@ -1,0 +1,6 @@
+deepseek_api_key = ""
+pexels_api_key = ""
+tts_voice = "zh-CN-XiaoxiaoNeural"
+daily_limit = 8
+interval_min_min = 25
+interval_max_min = 50
