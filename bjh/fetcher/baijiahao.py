@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright
 
 from bjh.config import Config
 from bjh.models import Account, Topic
-from bjh.publisher.baijiahao import is_login_url, LoginExpiredError
+from bjh.publisher.baijiahao import is_login_url, LoginExpiredError, USER_AGENT
 from bjh.writer.topic import heat_score
 
 TopicRaw = namedtuple("TopicRaw", ["title", "url", "author"])
@@ -35,16 +35,28 @@ def _first_int(html: str, patterns) -> int:
 def parse_baidu_serp(html: str, keyword: str) -> list[TopicRaw]:
     soup = BeautifulSoup(html, "html.parser")
     seen, out = set(), []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        text = (a.get_text() or "").strip()
-        if BJH_LINK_MARK not in href or len(text) < 8:
-            continue
-        title = TITLE_SUFFIX.sub("", text).strip()
-        if not title or title in seen:
-            continue
+
+    def _add(text: str, url: str):
+        title = TITLE_SUFFIX.sub("", (text or "").strip()).strip()
+        if len(title) < 8 or title in seen:
+            return
         seen.add(title)
-        out.append(TopicRaw(title=title, url=href, author=""))
+        out.append(TopicRaw(title=title, url=url, author=""))
+
+    # 新版 SERP（2026-09 实测）：结果真实 URL 在容器 mu 属性上，href 均为 baidu.com/link 跳转
+    for el in soup.select("div.result[mu]"):
+        mu = el.get("mu", "")
+        if BJH_LINK_MARK not in mu:
+            continue
+        h = el.find("h3") or el.find("a")
+        if h is not None:
+            _add(h.get_text(), mu)
+    if out:
+        return out
+    # 兜底：旧版 SERP 锚点 href 直接是百家号链接
+    for a in soup.find_all("a", href=True):
+        if BJH_LINK_MARK in a["href"]:
+            _add(a.get_text(), a["href"])
     return out
 
 
@@ -58,7 +70,7 @@ async def login(account_name: str, cfg: Config) -> Account:
     state_path.parent.mkdir(parents=True, exist_ok=True)
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=False)
-        ctx = await browser.new_context()
+        ctx = await browser.new_context(user_agent=USER_AGENT)
         page = await ctx.new_page()
         await page.goto("https://baijiahao.baidu.com")
         input(f"在浏览器中完成登录（账号:{account_name}），登录成功回到首页后按回车保存 Cookie...")
@@ -80,7 +92,7 @@ async def fetch_topics(keyword: str, pages: int, account: Account,
     now = datetime.now().isoformat(timespec="seconds")
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=headless)
-        ctx = await browser.new_context(storage_state=str(state))
+        ctx = await browser.new_context(storage_state=str(state), user_agent=USER_AGENT)
         page = await ctx.new_page()
         for pn in range(pages):
             await page.goto(BAIDU_SERP_URL.format(kw=keyword) + (f"&pn={pn * 20}" if pn else ""))

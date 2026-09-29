@@ -22,14 +22,13 @@ async def build_video(db: DB, cfg: Config, draft: Draft, topic: Topic) -> Video 
         mp3 = work / "voice.mp3"
         words = await synthesize_with_retry(draft.script, cfg.tts_voice, mp3)
         sents = sentences_with_timing(words, split_sentences(draft.script))
-        ass = work / "subs.ass"
+        ass = work / "subs.ass"        # 简单文件名，避免 subtitles 滤镜路径转义问题
         ass.write_text(build_ass(sents), encoding="utf-8")
-        safe_ass = work / "subs.ass"        # 简单文件名，避免 subtitles 滤镜路径转义问题
         images = await collect_images(topic.keyword, 6, work / "img",
                                       cfg.pexels_api_key or None,
                                       [draft.title, draft.hook or draft.title])
         out = work / f"{draft.id}.mp4"
-        compose_video(mp3, images, safe_ass, out)
+        compose_video(mp3, images, ass, out)
         v = Video(draft_id=draft.id, path=str(out), duration_sec=audio_duration(out),
                   size_bytes=out.stat().st_size, cost=draft.cost, status="ok",
                   error=None, created_at=datetime.now().isoformat(timespec="seconds"))

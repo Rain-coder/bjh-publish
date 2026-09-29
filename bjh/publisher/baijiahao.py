@@ -7,6 +7,9 @@ from playwright.async_api import Page, async_playwright
 
 # ==== 选择器常量（百家号改版时只改这里；Task 16 冒烟核对）====
 PUBLISH_URL = "https://baijiahao.baidu.com/builder/rc/edit/video"
+# 真实桌面 UA：Playwright 默认无头 UA 会被百度 SERP 识别为爬虫返回简化页（2026-09 实测）
+USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 SEL = {
     "upload_input": "input[type=file]",
     "title_input": "textarea",                    # VERIFY
@@ -55,7 +58,7 @@ async def publish_video(video_path: Path, title: str, tags: list[str],
         raise PublishError(f"登录态不存在: {state_path}")
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(headless=not dry_run)
-        ctx = await browser.new_context(storage_state=str(state_path))
+        ctx = await browser.new_context(storage_state=str(state_path), user_agent=USER_AGENT)
         page = await ctx.new_page()
         try:
             await page.goto(PUBLISH_URL, timeout=30000)

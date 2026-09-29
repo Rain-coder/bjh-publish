@@ -25,7 +25,8 @@ def compose_video(audio_path: Path, image_paths: list[Path], ass_path: Path | No
         # subtitles= 滤镜路径若含 : 或空格需转义；复制为简单名规避
         out_path.parent.mkdir(parents=True, exist_ok=True)
         safe_ass = out_path.parent / "subs.ass"
-        shutil.copy(ass_path, safe_ass)
+        if ass_path.resolve() != safe_ass.resolve():
+            shutil.copy(ass_path, safe_ass)
     cmd: list[str] = ["ffmpeg", "-y"]
     for img in image_paths:
         cmd += ["-loop", "1", "-t", f"{seg:.3f}", "-i", str(img)]
