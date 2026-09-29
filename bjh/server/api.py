@@ -1,4 +1,6 @@
 # bjh/server/api.py
+import asyncio
+import threading
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +30,45 @@ class ConfigPatch(BaseModel):
     daily_limit: int | None = None
     interval_min_min: int | None = None
     interval_max_min: int | None = None
+
+
+class FetchReq(BaseModel):
+    keyword: str
+    pages: int = 1
+
+
+class CreateReq(BaseModel):
+    count: int = 1
+
+
+class RunReq(BaseModel):
+    keyword: str
+    count: int = 1
+    pages: int = 1
+
+
+# 后台任务状态（单并发；长任务开独立线程+独立 DB 连接，避免跨线程共享）
+JOB = {"running": None, "started_at": None, "last": None}
+
+
+def _run_job(name: str, fn) -> dict:
+    if JOB["running"]:
+        raise HTTPException(409, f"任务进行中: {JOB['running']}，请等完成")
+    JOB.update(running=name, started_at=datetime.now().isoformat(timespec="seconds"))
+
+    def wrap():
+        try:
+            r = fn()
+            JOB["last"] = {"name": name, "ok": True, "result": str(r),
+                           "at": datetime.now().isoformat(timespec="seconds")}
+        except Exception as e:
+            JOB["last"] = {"name": name, "ok": False, "result": str(e)[:300],
+                           "at": datetime.now().isoformat(timespec="seconds")}
+        finally:
+            JOB["running"] = None
+
+    threading.Thread(target=wrap, daemon=True).start()
+    return {"started": name}
 
 
 def create_app(db: DB, cfg: Config) -> FastAPI:
@@ -105,6 +146,51 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
     @app.get("/api/stats")
     def stats():
         return db.stats()
+
+    # ==== 工作流操作（后台线程执行，GET /api/job 查进度）====
+    @app.post("/api/fetch")
+    def fetch(body: FetchReq):
+        def fn():
+            from bjh.pipeline import fetch_and_store
+            n = fetch_and_store(DB(Path(cfg.data_dir) / "bjh.db"), body.keyword, body.pages, cfg)
+            return f"新增热文 {n} 条（{body.keyword}）"
+        return _run_job(f"抓取:{body.keyword}", fn)
+
+    @app.post("/api/create")
+    def create(body: CreateReq):
+        def fn():
+            from bjh.pipeline import create_videos
+            ids = create_videos(DB(Path(cfg.data_dir) / "bjh.db"), cfg, count=max(1, body.count))
+            return f"生成视频 {len(ids)} 个: {ids or '（无可用选题/文案被拦截）'}"
+        return _run_job("生成视频", fn)
+
+    @app.post("/api/publish")
+    def publish_now():
+        def fn():
+            from bjh.scheduler import run_once
+            jdb = DB(Path(cfg.data_dir) / "bjh.db")
+            acc = jdb.get_account("default") or (jdb.list_accounts() or [None])[0]
+            vids = [v["id"] for v in jdb.videos_with_titles(limit=500)
+                    if v["status"] == "ok" and v["id"] not in
+                    {p.video_id for p in jdb.list_posts(limit=500)}]
+            if not vids:
+                return "没有待发视频，先「生成视频」"
+            jdb.queue_post(vids[-1], acc.id, datetime.now().isoformat(timespec="seconds"))  # 最旧优先
+            return asyncio.run(run_once(jdb, cfg))
+        return _run_job("立即发布", fn)
+
+    @app.post("/api/run")
+    def run_all(body: RunReq):
+        def fn():
+            from bjh.pipeline import run_pipeline
+            ids = run_pipeline(DB(Path(cfg.data_dir) / "bjh.db"), cfg,
+                               body.keyword, count=max(1, body.count), pages=body.pages)
+            return f"流水线完成，视频 {ids} 已入队（用「立即发布」发出）"
+        return _run_job(f"全流程:{body.keyword}", fn)
+
+    @app.get("/api/job")
+    def job():
+        return {"running": JOB["running"], "started_at": JOB["started_at"], "last": JOB["last"]}
 
     static = Path(__file__).parent / "static"
     app.mount("/", StaticFiles(directory=static, html=True), name="static")

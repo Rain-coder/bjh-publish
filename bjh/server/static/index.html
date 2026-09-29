@@ -16,6 +16,19 @@
   </nav>
 
   <main class="p-4 max-w-5xl mx-auto">
+    <div class="flex flex-wrap gap-2 mb-4 bg-gray-900 rounded p-3">
+      <button @click="doFetch()" :disabled="!!job.running"
+              class="bg-green-700 disabled:opacity-40 px-3 py-2 rounded text-sm">📥 抓热文</button>
+      <button @click="doCreate()" :disabled="!!job.running"
+              class="bg-indigo-700 disabled:opacity-40 px-3 py-2 rounded text-sm">🎬 生成视频</button>
+      <button @click="doPublish()" :disabled="!!job.running"
+              class="bg-red-700 disabled:opacity-40 px-3 py-2 rounded text-sm">🚀 立即发布</button>
+      <button @click="doRun()" :disabled="!!job.running"
+              class="bg-blue-800 disabled:opacity-40 px-3 py-2 rounded text-sm">⚡ 一键全流程</button>
+      <span class="text-sm self-center" :class="job.running ? 'text-yellow-400' : (lastOk() ? 'text-green-400' : 'text-gray-400')"
+            x-text="jobLine()"></span>
+    </div>
+
     <section x-show="tab==='stats'" class="grid grid-cols-3 gap-4">
       <div class="bg-gray-900 rounded p-6 text-center"><div class="text-4xl" x-text="s.today_published"></div>今日已发</div>
       <div class="bg-gray-900 rounded p-6 text-center"><div class="text-4xl" x-text="s.total_videos"></div>累计视频</div>
@@ -69,7 +82,7 @@
   </main>
 
 <script>
-function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],accounts:[],s:{},c:{},
+function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],accounts:[],s:{},c:{},job:{running:null,last:null},
   async init(){await this.refresh();setInterval(()=>this.refresh(),5000)},
   async refresh(){
     const g=async u=>(await fetch(u)).json();
@@ -79,8 +92,26 @@ function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],a
     this.posts=await g('/api/posts');
     this.accounts=await g('/api/accounts');
     this.c=await g('/api/config');
+    this.job=await g('/api/job');
     this.hint='今日 '+this.s.today_published+' · 自动刷新中';
   },
+  async post(u,body){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:body?JSON.stringify(body):undefined});
+    if(!r.ok){alert((await r.json()).detail||r.statusText);return false}
+    this.refresh();return true},
+  async doFetch(){const kw=prompt('搜索关键词（如：养生）');if(!kw)return;
+    await this.post('/api/fetch',{keyword:kw,pages:1})},
+  async doCreate(){const n=prompt('生成几条？','1');if(!n)return;
+    await this.post('/api/create',{count:parseInt(n)||1})},
+  async doPublish(){if(!confirm('立即发布最旧一条未发视频？（会弹出浏览器，含AI内容将如实申报）'))return;
+    await this.post('/api/publish')},
+  async doRun(){const kw=prompt('关键词（抓→做→入队）');if(!kw)return;
+    const n=prompt('产量几条？','1');if(!n)return;
+    await this.post('/api/run',{keyword:kw,count:parseInt(n)||1,pages:1})},
+  jobLine(){if(this.job.running)return '⏳ '+this.job.running+' 进行中…（页面会自动刷新结果）';
+    const l=this.job.last;if(!l)return '';
+    return (l.ok?'✅ ':'❌ ')+l.name+'：'+l.result},
+  lastOk(){return this.job.last&&this.job.last.ok},
   async retitle(id){const t=prompt('新标题');if(!t)return;
     await fetch('/api/drafts/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t})});this.refresh()},
   async queue(id){await fetch('/api/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_id:id})});this.refresh()},
