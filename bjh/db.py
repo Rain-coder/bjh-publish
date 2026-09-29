@@ -195,9 +195,9 @@ class DB:
 
     def update_post(self, p: Post) -> None:
         self.conn.execute(
-            "UPDATE posts SET status=?, published_at=?, bjh_url=?, error=?, screenshot_path=? "
-            "WHERE id=?",
-            (p.status, p.published_at, p.bjh_url, p.error, p.screenshot_path, p.id))
+            "UPDATE posts SET status=?, published_at=?, bjh_url=?, error=?, screenshot_path=?, "
+            "scheduled_at=? WHERE id=?",
+            (p.status, p.published_at, p.bjh_url, p.error, p.screenshot_path, p.scheduled_at, p.id))
         self.conn.commit()
 
     def published_today(self, account_id: int) -> int:

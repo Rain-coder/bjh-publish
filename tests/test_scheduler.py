@@ -63,7 +63,7 @@ async def test_run_once_daily_limit_reschedules(tmp_path):
     assert result == "daily-limit"
     post = [p for p in db.list_posts() if p.id == pid][0]
     assert post.status == "queued"
-    assert post.scheduled_at > datetime.now().isoformat(timespec="seconds")[:10]  # 排到未来日期
+    assert post.scheduled_at > past()  # 顺延到未来（完整时间戳比较，防止静默 no-op）
 
 
 async def test_run_once_expired_account(tmp_path):
@@ -72,7 +72,9 @@ async def test_run_once_expired_account(tmp_path):
     pid = db.queue_post(v.id, acc.id, past())
     result = await run_once(db, Config(), publish_fn=fake_ok)
     assert result == "account-expired"
-    assert [p for p in db.list_posts() if p.id == pid][0].status == "queued"
+    post = [p for p in db.list_posts() if p.id == pid][0]
+    assert post.status == "queued"
+    assert post.scheduled_at > past()  # 顺延到未来（完整时间戳比较，防止静默 no-op）
 
 
 async def test_run_once_idle(tmp_path):

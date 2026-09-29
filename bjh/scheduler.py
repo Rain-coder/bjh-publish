@@ -7,7 +7,6 @@ from pathlib import Path
 
 from bjh.config import Config
 from bjh.db import DB
-from bjh.models import Post
 from bjh.publisher.baijiahao import PublishError, publish_video
 from bjh.risk import next_publish_time
 
