@@ -133,6 +133,9 @@ class DB:
             "ORDER BY heat_score DESC, comments DESC LIMIT ?", (n,))
         return [self._row("topics", r) for r in rows]
 
+    def get_topic(self, topic_id: int) -> Topic | None:
+        return self._get("topics", "id=?", topic_id)
+
     def set_topic_status(self, topic_id: int, status: str) -> None:
         self.conn.execute("UPDATE topics SET status=? WHERE id=?", (status, topic_id))
         self.conn.commit()

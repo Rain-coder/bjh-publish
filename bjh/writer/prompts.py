@@ -1,6 +1,8 @@
 # bjh/writer/prompts.py
 import json
 import re
+from pathlib import Path
+
 from bjh.models import Topic
 
 SKILL_PATH_DEFAULT = "skills/bjh-video/SKILL.md"
@@ -53,6 +55,13 @@ def parse_llm_json(raw: str) -> dict:
     if len(d["title"]) > TITLE_MAX:
         raise ValueError(f"title 超过 {TITLE_MAX} 字")
     return d
+
+
+def load_rules(path: str | None = None) -> str:
+    p = Path(path or SKILL_PATH_DEFAULT)
+    if not p.exists():
+        p = Path(__file__).resolve().parents[2] / SKILL_PATH_DEFAULT
+    return extract_rules(p.read_text(encoding="utf-8"))
 
 
 def pick_title(titles: list[str]) -> str:

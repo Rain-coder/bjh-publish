@@ -29,6 +29,7 @@ def test_topic_select_and_draft_video_post_flow(tmp_path):
         db.insert_topic(t)
     best = db.unused_topics(n=2)
     assert best[0].comments == 900            # 热度排序：评论权重高者优先
+    assert db.get_topic(best[0].id).title == best[0].title
     db.set_topic_status(best[0].id, "selected")
     assert all(t.status == "new" for t in db.unused_topics())
 
