@@ -42,3 +42,14 @@ def load_config(path: str | None = None) -> Config:
         if os.environ.get(var):
             setattr(cfg, attr, os.environ[var])
     return cfg
+
+
+_SAVE_FIELDS = ("deepseek_api_key", "deepseek_base_url", "deepseek_model", "pexels_api_key",
+                "tts_voice", "daily_limit", "interval_min_min", "interval_max_min")
+
+
+def save_config(cfg: Config, path: str | None = None) -> None:
+    p = Path(path or DEFAULT_CONFIG_NAME)
+    lines = [f'{f} = "{getattr(cfg, f)}"' if isinstance(getattr(cfg, f), str)
+             else f"{f} = {getattr(cfg, f)}" for f in _SAVE_FIELDS]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")

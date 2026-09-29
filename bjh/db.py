@@ -48,7 +48,7 @@ _COLS = {  # 表 -> (dataclass, 列顺序)
 
 class DB:
     def __init__(self, path: Path):
-        self.conn = sqlite3.connect(path)
+        self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
 

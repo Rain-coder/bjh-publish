@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8"><title>百家号流水线</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="panel()" x-init="init()">
+  <nav class="flex gap-1 p-4 border-b border-gray-800">
+    <template x-for="t in ['stats','topics','videos','posts','settings']">
+      <button @click="tab=t" x-text="({stats:'统计',topics:'热榜',videos:'视频',posts:'队列',settings:'设置'})[t]"
+              :class="tab===t ? 'bg-blue-600' : 'bg-gray-800'"
+              class="px-4 py-2 rounded"></button>
+    </template>
+    <span class="ml-auto text-sm text-gray-400 self-center" x-text="hint"></span>
+  </nav>
+
+  <main class="p-4 max-w-5xl mx-auto">
+    <section x-show="tab==='stats'" class="grid grid-cols-3 gap-4">
+      <div class="bg-gray-900 rounded p-6 text-center"><div class="text-4xl" x-text="s.today_published"></div>今日已发</div>
+      <div class="bg-gray-900 rounded p-6 text-center"><div class="text-4xl" x-text="s.total_videos"></div>累计视频</div>
+      <div class="bg-gray-900 rounded p-6 text-center"><div class="text-4xl" x-text="(s.total_cost||0).toFixed(3)"></div>累计成本(元)</div>
+    </section>
+
+    <section x-show="tab==='topics'">
+      <input x-model="kw" @keyup.enter="refresh()" placeholder="关键词过滤" class="bg-gray-900 rounded px-3 py-2 mb-3">
+      <table class="w-full text-sm"><tbody>
+        <template x-for="t in topics"><tr class="border-b border-gray-800">
+          <td class="py-1" x-text="t.title"></td>
+          <td x-text="'R'+t.reads"></td><td x-text="'C'+t.comments"></td>
+          <td x-text="t.heat_score.toFixed(1)"></td><td x-text="t.status"></td>
+        </tr></template>
+      </tbody></table>
+    </section>
+
+    <section x-show="tab==='videos'">
+      <template x-for="v in videos"><div class="bg-gray-900 rounded p-3 mb-2 flex items-center gap-3">
+        <video class="w-24 rounded" :src="'/api/videos/'+v.id+'/file'" controls muted></video>
+        <div class="flex-1">
+          <div x-text="v.draft_title"></div>
+          <div class="text-xs text-gray-400" x-text="v.duration_sec.toFixed(0)+'s · ¥'+v.cost.toFixed(3)+' · '+v.status"></div>
+        </div>
+        <button @click="retitle(v.draft_id)" class="bg-gray-700 px-2 py-1 rounded text-sm">改标题</button>
+        <button @click="queue(v.id)" class="bg-blue-600 px-2 py-1 rounded text-sm">入队</button>
+      </div></template>
+    </section>
+
+    <section x-show="tab==='posts'">
+      <table class="w-full text-sm"><tbody>
+        <template x-for="p in posts"><tr class="border-b border-gray-800">
+          <td x-text="'#'+p.id"></td><td x-text="p.status"></td>
+          <td x-text="p.scheduled_at"></td><td x-text="p.bjh_url||p.error||''"></td>
+          <td><a x-show="p.screenshot_path" :href="p.screenshot_path" class="underline">截图</a></td>
+        </tr></template>
+      </tbody></table>
+    </section>
+
+    <section x-show="tab==='settings'">
+      <div class="flex items-center gap-2 mb-3">
+        日上限 <input type="number" x-model.number="c.daily_limit" @change="saveCfg()" class="bg-gray-900 rounded px-2 py-1 w-20">
+        间隔下限(分) <input type="number" x-model.number="c.interval_min_min" @change="saveCfg()" class="bg-gray-900 rounded px-2 py-1 w-20">
+        间隔上限(分) <input type="number" x-model.number="c.interval_max_min" @change="saveCfg()" class="bg-gray-900 rounded px-2 py-1 w-20">
+      </div>
+      <template x-for="a in accounts"><div class="bg-gray-900 rounded p-3 mb-2 flex justify-between">
+        <span x-text="a.name + (a.status==='expired' ? ' ⚠Cookie失效，请 bjh login' : '')"></span>
+        <span x-text="'日上限 '+a.daily_limit"></span>
+      </div></template>
+    </section>
+  </main>
+
+<script>
+function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],accounts:[],s:{},c:{},
+  async init(){await this.refresh();setInterval(()=>this.refresh(),5000)},
+  async refresh(){
+    const g=async u=>(await fetch(u)).json();
+    this.s=await g('/api/stats');
+    this.topics=await g('/api/topics'+(this.kw?('?keyword='+encodeURIComponent(this.kw)):''));
+    this.videos=await g('/api/videos');
+    this.posts=await g('/api/posts');
+    this.accounts=await g('/api/accounts');
+    this.c=await g('/api/config');
+    this.hint='今日 '+this.s.today_published+' · 自动刷新中';
+  },
+  async retitle(id){const t=prompt('新标题');if(!t)return;
+    await fetch('/api/drafts/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t})});this.refresh()},
+  async queue(id){await fetch('/api/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_id:id})});this.refresh()},
+  async saveCfg(){await fetch('/api/config',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.c)})}
+}}
+</script>
+</body></html>
