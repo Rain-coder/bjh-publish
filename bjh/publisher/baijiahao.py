@@ -17,6 +17,9 @@ SEL = {
     "upload_input": "input[type=file]",
     "form_ready": "text=作品描述",                   # 上传后表单区出现的标志
     "title_input": ".videov2-title-wrap [contenteditable=true]",   # 作品描述框（DIV富文本，限50字）
+    "cover_first": "img[src*='bjhvideocover']",     # 智能推荐封面缩略图（必选其一，否则报"请添加横版封面"）
+    "decl_input": "[placeholder='请选择创作声明']",   # 创作声明必填下拉
+    "decl_option": "text=含AI生成内容",              # 如实申报 AI 生成（文案/TTS 均为 AI 产出）
     "submit_btn": "button",                         # 精确文本匹配在代码里做（避开"定时发布"）
 }
 TITLE_MAX = 50                                      # 作品描述字数上限（实测 1/50）
@@ -67,6 +70,34 @@ async def _wait_security_cleared(page: Page, max_wait: float = 120.0):
     raise PublishError(f"安全验证 {max_wait}s 内未通过（需人工滑块）")
 
 
+async def _watch_submit(page: Page, max_wait: float = 45.0) -> tuple[str, str]:
+    """点「发布」后观察结果：ok=(跳转/成功提示)；error=校验 toast 文案。"""
+    import time
+    start_url = page.url
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        if page.url != start_url and "edit" not in page.url:
+            return "ok", page.url                       # 跳离编辑页 → 成功
+        layers = await page.evaluate("""() => {
+            const out = [];
+            for (const el of document.querySelectorAll(
+                    '[class*=modal],[class*=dialog],[class*=toast],[class*=Message],[class*=notice]')) {
+                if (!el.offsetWidth && !el.offsetHeight) continue;
+                const t = (el.innerText||'').trim();
+                if (t && t.length < 200) out.push(t);
+            }
+            return out;
+        }""")
+        for t in layers:
+            flat = t.replace("\n", " ")
+            if ("发布成功" in flat or "审核" in flat and "中" in flat):
+                return "ok", flat
+            if flat.startswith(("请添加", "请选择", "请填写", "请输入")):
+                return "error", flat                    # 表单校验被拒
+        await page.wait_for_timeout(2000)
+    return "unknown", f"{max_wait}s 内未见成功或校验提示"
+
+
 async def publish_video(video_path: Path, title: str, tags: list[str],
                         state_path: Path, shot_dir: Path,
                         dry_run: bool = False) -> str:
@@ -103,24 +134,36 @@ async def publish_video(video_path: Path, title: str, tags: list[str],
             full_title = title if not tags else f"{title} {' '.join(f'#{t}' for t in tags)}"
             await title_box.fill(full_title[:TITLE_MAX])
             await _rand()
-            # 5. 提交（精确匹配"发布"，避开"定时发布"；先关可能的提示弹窗）
+            # 5. 选智能推荐封面（不选则提交报"请添加横版封面"）
+            cover = page.locator(SEL["cover_first"]).first
+            try:
+                await cover.wait_for(state="visible", timeout=60000)
+                await cover.click()
+                await _rand()
+            except Exception as e:      # 推荐未生成（罕见）→ 留给提交校验兜底报错
+                print(f"[publisher] 封面选择跳过: {e}")
+            # 6. 创作声明：如实选「含AI生成内容」（文案/TTS 均 AI 产出），确定
+            decl = page.locator(SEL["decl_input"]).first
+            await decl.click(timeout=10000)
+            await page.locator(SEL["decl_option"]).first.click(timeout=10000)
+            ok_btn = page.get_by_role("button", name="确定", exact=True)
+            if await ok_btn.count() and await ok_btn.first.is_visible():
+                await ok_btn.first.click(timeout=5000)
+            await _rand()
+            # 7. 提交（精确匹配"发布"，避开"定时发布"）
             if dry_run:
                 shot = await _shot(page, shot_dir, f"dryrun_{video_path.stem}")
                 await browser.close()
                 return "DRY-RUN-OK"
-            try:
-                ik = page.get_by_role("button", name="我知道了", exact=True)
-                if await ik.count() and await ik.first.is_visible():
-                    await ik.first.click(timeout=5000)
-            except Exception:
-                pass
             btn = page.get_by_role("button", name="发布", exact=True).first
             await btn.click(timeout=15000)
-            await page.wait_for_timeout(8000)
+            # 提交后验证：URL 跳转/成功提示 → 发布成功；校验 toast（请添加/请选择…）→ 如实报错
+            outcome, detail = await _watch_submit(page)
             shot = await _shot(page, shot_dir, f"submit_{video_path.stem}_{datetime.now():%H%M%S}")
-            url = page.url
             await browser.close()
-            return url
+            if outcome != "ok":
+                raise PublishError(f"提交未成功: {detail}", shot)
+            return detail if detail.startswith("http") else page.url
         except Exception as e:
             if isinstance(e, (LoginExpiredError, PublishError)):
                 raise
