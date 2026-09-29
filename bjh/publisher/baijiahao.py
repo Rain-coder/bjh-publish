@@ -1,22 +1,26 @@
 # bjh/publisher/baijiahao.py
 import asyncio
 import random
+from datetime import datetime
 from pathlib import Path
 
 from playwright.async_api import Page, async_playwright
 
-# ==== 选择器常量（百家号改版时只改这里；Task 16 冒烟核对）====
-PUBLISH_URL = "https://baijiahao.baidu.com/builder/rc/edit/video"
+# ==== 选择器常量（百家号改版时只改这里；2026-09-29 真机核对）====
+BUILDER_HOME = "https://baijiahao.baidu.com/builder/rc/home"
 # 真实桌面 UA：Playwright 默认无头 UA 会被百度 SERP 识别为爬虫返回简化页（2026-09 实测）
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
 SEL = {
+    "publish_entry": "text=发布作品",               # 左上角 + 按钮（实测为文字按钮）
+    "video_tab": "text=视频",                       # 编辑器顶部内容类型 tab
     "upload_input": "input[type=file]",
-    "title_input": "textarea",                    # VERIFY
-    "desc_input": "[placeholder*='介绍'],[placeholder*='描述']",  # VERIFY 可选
-    "upload_done": "text=转码完成",               # VERIFY 上传成功标志
-    "submit_btn": "button:has-text('发布')",      # VERIFY
+    "form_ready": "text=作品描述",                   # 上传后表单区出现的标志
+    "title_input": ".videov2-title-wrap [contenteditable=true]",   # 作品描述框（DIV富文本，限50字）
+    "submit_btn": "button",                         # 精确文本匹配在代码里做（避开"定时发布"）
 }
+TITLE_MAX = 50                                      # 作品描述字数上限（实测 1/50）
+SECURITY_MARK = "安全验证"                          # 百度滑块验证弹窗标志
 
 
 class PublishError(Exception):
@@ -51,52 +55,74 @@ async def _rand():
     await asyncio.sleep(random.uniform(2, 6))
 
 
+async def _wait_security_cleared(page: Page, max_wait: float = 120.0):
+    """滑块/安全验证弹窗出现时等人工处理（有头模式，本地机器前有人）。"""
+    import time
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        html = await page.content()
+        if SECURITY_MARK not in html:
+            return
+        await page.wait_for_timeout(5000)
+    raise PublishError(f"安全验证 {max_wait}s 内未通过（需人工滑块）")
+
+
 async def publish_video(video_path: Path, title: str, tags: list[str],
                         state_path: Path, shot_dir: Path,
                         dry_run: bool = False) -> str:
     if not state_path.exists():
         raise PublishError(f"登录态不存在: {state_path}")
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=not dry_run)
+        # 始终有头：无头模式实测触发百度安全验证（滑块），导致编辑页空白
+        browser = await pw.chromium.launch(headless=False)
         ctx = await browser.new_context(storage_state=str(state_path), user_agent=USER_AGENT)
         page = await ctx.new_page()
         try:
-            await page.goto(PUBLISH_URL, timeout=30000)
-            await page.wait_for_load_state("networkidle")
+            # 0. 后台首页 → 处理可能的滑块验证
+            await page.goto(BUILDER_HOME, timeout=60000)
+            await page.wait_for_timeout(4000)
             if is_login_url(page.url):
                 shot = await _shot(page, shot_dir, f"login_expired_{video_path.stem}")
                 raise LoginExpiredError(screenshot=shot)
+            await _wait_security_cleared(page)
+            # 1. 发布作品 → 视频 tab（新后台无直达 URL，旧 edit/video 路由已空白）
+            await page.locator(SEL["publish_entry"]).first.click(timeout=15000)
             await _rand()
-            # 1. 上传
+            await page.locator(SEL["video_tab"]).first.click(timeout=15000)
+            await _rand()
+            # 2. 上传（隐藏 input 可直接 set_input_files）
             upload = page.locator(SEL["upload_input"]).first
+            await upload.wait_for(state="attached", timeout=30000)
             await upload.set_input_files(str(video_path))
-            # 2. 等待上传/转码完成（最多 180s，期间轮询标题框可用即视为可填）
-            try:
-                await page.wait_for_selector(SEL["upload_done"], timeout=180000)
-            except Exception:
-                pass  # 转码提示文案不一，超时不阻断，靠标题框校验
+            # 3. 等上传+转码：「作品描述」区出现即表单就绪（最长 5 分钟）
+            await page.locator(SEL["form_ready"]).first.wait_for(state="visible", timeout=300000)
+            title_box = page.locator(SEL["title_input"]).first
+            await title_box.wait_for(state="visible", timeout=30000)
             await _rand()
-            # 3. 填标题与话题
-            await page.fill(SEL["title_input"], title)
-            if tags:
-                try:
-                    await page.fill(SEL["desc_input"], " ".join(f"#{t}" for t in tags))
-                except Exception:
-                    pass  # 描述框可选
+            # 4. 填标题（话题以 # 拼在标题尾，视频页无独立简介框；上限50字）
+            full_title = title if not tags else f"{title} {' '.join(f'#{t}' for t in tags)}"
+            await title_box.fill(full_title[:TITLE_MAX])
             await _rand()
-            # 4. 提交
+            # 5. 提交（精确匹配"发布"，避开"定时发布"；先关可能的提示弹窗）
             if dry_run:
-                await _shot(page, shot_dir, f"dryrun_{video_path.stem}")
+                shot = await _shot(page, shot_dir, f"dryrun_{video_path.stem}")
                 await browser.close()
                 return "DRY-RUN-OK"
-            await page.click(SEL["submit_btn"])
-            await page.wait_for_timeout(5000)
-            await _shot(page, shot_dir, f"submit_{video_path.stem}")
+            try:
+                ik = page.get_by_role("button", name="我知道了", exact=True)
+                if await ik.count() and await ik.first.is_visible():
+                    await ik.first.click(timeout=5000)
+            except Exception:
+                pass
+            btn = page.get_by_role("button", name="发布", exact=True).first
+            await btn.click(timeout=15000)
+            await page.wait_for_timeout(8000)
+            shot = await _shot(page, shot_dir, f"submit_{video_path.stem}_{datetime.now():%H%M%S}")
             url = page.url
             await browser.close()
             return url
         except Exception as e:
-            if isinstance(e, LoginExpiredError):
+            if isinstance(e, (LoginExpiredError, PublishError)):
                 raise
             shot = None
             try:
