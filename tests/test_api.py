@@ -75,3 +75,38 @@ def test_queue_post_validates_video(tmp_path, monkeypatch):
     db.conn.commit()
     assert c.post("/api/posts", json={"video_id": 1}).status_code == 400
     assert db.list_posts() == []
+
+
+def test_delete_video_cascades_queue_and_files(tmp_path, monkeypatch):
+    from datetime import datetime
+    db, c = make(tmp_path, monkeypatch)
+    # 把视频文件放进 data/videos/draft_1/ 工作目录内（删除应连目录一起清）
+    work = tmp_path / "data" / "videos" / "draft_1"
+    work.mkdir(parents=True)
+    f = work / "1.mp4"
+    f.write_bytes(b"0" * 32)
+    db.conn.execute("UPDATE videos SET path=? WHERE id=1", (str(f),))
+    db.conn.commit()
+    db.queue_post(1, 1, datetime.now().isoformat(timespec="seconds"))
+    assert c.delete("/api/videos/1").json() == {"ok": True}
+    assert db.get_video(1) is None and db.list_posts() == []
+    assert not work.exists() and not f.exists()
+    assert c.delete("/api/videos/1").status_code == 404
+
+
+def test_delete_video_blocks_published(tmp_path, monkeypatch):
+    db, c = make(tmp_path, monkeypatch)
+    pid = db.queue_post(1, 1, "2026-09-29T10:00:00")
+    p = db.list_posts()[0]
+    p.status, p.bjh_url = "published", "https://bjh.baidu.com/s?id=1"
+    db.update_post(p)
+    assert c.delete("/api/videos/1").status_code == 400
+    assert db.get_video(1) is not None
+
+
+def test_delete_video_ignores_files_outside_videos_dir(tmp_path, monkeypatch):
+    """视频路径在 data/videos 之外（如测试残留）时只删记录，不动文件。"""
+    db, c = make(tmp_path, monkeypatch)
+    outside = tmp_path / "outside.mp4"
+    assert c.delete("/api/videos/1").json() == {"ok": True}
+    assert db.get_video(1) is None and outside.parent.exists()

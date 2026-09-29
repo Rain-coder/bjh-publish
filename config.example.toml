@@ -1,6 +1,13 @@
 deepseek_api_key = ""
 pexels_api_key = ""
 tts_voice = "zh-CN-XiaoxiaoNeural"
+tts_rate = "-10%"                 # 语速：-10% ≈ 4字/秒 自然口播；0% 偏快
+# 文生图兜底（可选）：配图搜不到时按段落文案生成，OpenAI 兼容接口，默认智谱 CogView
+imagegen_api_key = ""
+imagegen_base_url = "https://open.bigmodel.cn/api/paas/v4"
+imagegen_model = "cogview-3-plus"
+imagegen_size = "768x1344"
+imagegen_mode = "auto"            # auto=搜不到才生成 | always=全部生成 | off
 daily_limit = 8
 interval_min_min = 25
 interval_max_min = 50

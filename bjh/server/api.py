@@ -100,6 +100,27 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
             raise HTTPException(404)
         return FileResponse(v.path, media_type="video/mp4")
 
+    @app.delete("/api/videos/{video_id}")
+    def delete_video(video_id: int):
+        import shutil
+        v = db.get_video(video_id)
+        if not v:
+            raise HTTPException(404, "视频不存在")
+        # 已发布/发布中的帖子有关联记录，不允许删（历史可追溯）
+        active = [p for p in db.list_posts(limit=1000)
+                  if p.video_id == video_id and p.status in ("publishing", "published")]
+        if active:
+            raise HTTPException(400, "该视频已发布或正在发布，不能删除")
+        db.delete_posts_for_video(video_id)          # 连带清理排队/失败帖
+        db.delete_video(video_id)
+        # 删除磁盘产物：视频文件所在工作目录（音频/图片/字幕），约束在 data/videos 内防误删
+        if v.path:
+            f = Path(v.path)
+            base = (Path(cfg.data_dir) / "videos").resolve()
+            if base in f.resolve().parents and f.exists():
+                shutil.rmtree(f.parent)
+        return {"ok": True}
+
     @app.get("/api/posts")
     def posts(status: str | None = None):
         return [asdict(p) for p in db.list_posts(status, limit=200)]

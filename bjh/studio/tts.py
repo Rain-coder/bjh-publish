@@ -41,11 +41,11 @@ def sentences_with_timing(words: list[Word], sentences: list[str]) -> list[Sente
     return result
 
 
-async def synthesize(text: str, voice: str, out_mp3: Path) -> list[Word]:
-    """edge-tts 合成，返回词级时间轴（offset 秒）。"""
+async def synthesize(text: str, voice: str, out_mp3: Path, rate: str = "-10%") -> list[Word]:
+    """edge-tts 合成，返回词级时间轴（offset 秒）。rate 如 "-10%"，默认接近自然口播语速。"""
     words: list[Word] = []
     # edge-tts>=7 默认发 SentenceBoundary；显式请求词级边界
-    comm = edge_tts.Communicate(text, voice, boundary="WordBoundary")
+    comm = edge_tts.Communicate(text, voice, boundary="WordBoundary", rate=rate)
     with open(out_mp3, "wb") as f:
         async for chunk in comm.stream():
             if chunk["type"] == "audio":
@@ -55,10 +55,11 @@ async def synthesize(text: str, voice: str, out_mp3: Path) -> list[Word]:
     return words
 
 
-async def synthesize_with_retry(text: str, voice: str, out_mp3: Path, retries: int = 3) -> list[Word]:
+async def synthesize_with_retry(text: str, voice: str, out_mp3: Path, retries: int = 3,
+                                 rate: str = "-10%") -> list[Word]:
     for attempt in range(retries):
         try:
-            return await synthesize(text, voice, out_mp3)
+            return await synthesize(text, voice, out_mp3, rate=rate)
         except Exception:
             if attempt == retries - 1:
                 raise

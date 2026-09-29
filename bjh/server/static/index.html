@@ -55,6 +55,7 @@
         </div>
         <button @click="retitle(v.draft_id)" class="bg-gray-700 px-2 py-1 rounded text-sm">改标题</button>
         <button @click="queue(v.id)" class="bg-blue-600 px-2 py-1 rounded text-sm">入队</button>
+        <button @click="del(v)" class="bg-red-900 px-2 py-1 rounded text-sm">删除</button>
       </div></template>
     </section>
 
@@ -115,6 +116,10 @@ function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],a
   async retitle(id){const t=prompt('新标题');if(!t)return;
     await fetch('/api/drafts/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t})});this.refresh()},
   async queue(id){await fetch('/api/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_id:id})});this.refresh()},
+  async del(v){if(!confirm('删除视频「'+v.draft_title+'」？文件与排队记录一并删除，不可恢复'))return;
+    const r=await fetch('/api/videos/'+v.id,{method:'DELETE'});
+    if(!r.ok){alert((await r.json()).detail||r.statusText);return}
+    this.refresh()},
   async saveCfg(){await fetch('/api/config',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.c)})}
 }}
 </script>

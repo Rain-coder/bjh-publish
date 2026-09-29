@@ -169,6 +169,14 @@ class DB:
             "JOIN drafts d ON d.id=v.draft_id ORDER BY v.id DESC LIMIT ?", (limit,))
         return [dict(r) for r in rows]
 
+    def delete_video(self, video_id: int) -> None:
+        self.conn.execute("DELETE FROM videos WHERE id=?", (video_id,))
+        self.conn.commit()
+
+    def delete_posts_for_video(self, video_id: int) -> None:
+        self.conn.execute("DELETE FROM posts WHERE video_id=?", (video_id,))
+        self.conn.commit()
+
     # ---- posts ----
     def queue_post(self, video_id: int, account_id: int, scheduled_at: str) -> int:
         p = Post(video_id=video_id, account_id=account_id, scheduled_at=scheduled_at)

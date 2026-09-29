@@ -34,7 +34,7 @@ async def build_video(db: DB, cfg: Config, draft: Draft, topic: Topic) -> Video 
     work.mkdir(parents=True, exist_ok=True)
     try:
         mp3 = work / "voice.mp3"
-        words = await synthesize_with_retry(draft.script, cfg.tts_voice, mp3)
+        words = await synthesize_with_retry(draft.script, cfg.tts_voice, mp3, rate=cfg.tts_rate)
         sents = sentences_with_timing(words, split_sentences(draft.script))
         ass = work / "subs.ass"        # 简单文件名，避免 subtitles 滤镜路径转义问题
         ass.write_text(build_ass(sents), encoding="utf-8")
@@ -43,9 +43,19 @@ async def build_video(db: DB, cfg: Config, draft: Draft, topic: Topic) -> Video 
         if cfg.pexels_api_key and cfg.deepseek_api_key:
             client = DeepSeekClient(cfg.deepseek_api_key, cfg.deepseek_base_url, cfg.deepseek_model)
             queries = image_queries(client, draft.script, N_IMAGES)
+        # 文生图兜底：搜不到（或 always 模式）时按对应段落文字生成
+        generate = None
+        if cfg.imagegen_api_key and cfg.imagegen_mode != "off":
+            from bjh.studio.imagegen import generate_image
+
+            async def generate(prompt: str, out_path: Path):
+                return await generate_image(
+                    prompt + "。竖版短视频配图，真实感摄影风格，画面干净无文字", out_path, cfg)
         images = await collect_images(topic.keyword, N_IMAGES, work / "img",
                                       cfg.pexels_api_key or None,
-                                      segment_texts(draft.script, N_IMAGES), queries=queries)
+                                      segment_texts(draft.script, N_IMAGES, limit=40),
+                                      queries=queries, generate=generate,
+                                      gen_first=cfg.imagegen_mode == "always")
         out = work / f"{draft.id}.mp4"
         compose_video(mp3, images, ass, out)
         v = Video(draft_id=draft.id, path=str(out), duration_sec=audio_duration(out),

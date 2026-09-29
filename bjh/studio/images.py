@@ -69,31 +69,51 @@ async def fetch_pexels(query: str, count: int, out_dir: Path, api_key: str | Non
 
 async def collect_images(query: str, count: int, out_dir: Path,
                          api_key: str | None, titles: list[str],
-                         queries: list[str] | None = None) -> list[Path]:
-    """收集 count 张配图。queries 提供时第 i 个搜索词对应第 i 段旁白（逐词各搜 1 张）；
-    否则退回单一关键词搜一轮。搜不到的槽位用兜底文字卡片补齐。"""
+                         queries: list[str] | None = None, generate=None,
+                         gen_first: bool = False) -> list[Path]:
+    """收集 count 张配图，槽位 i 与文案第 i 段对应。
+    每槽取图优先级：gen_first=True 时 生成→搜图（always 模式），否则 搜图→生成（auto 模式）；
+    全落空用兜底文字卡片。generate 为 async (prompt, out_path) -> Path|None。
+    queries 提供时逐槽各搜 1 张（第 i 词对应第 i 段）；否则单一关键词搜一轮取不同图。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    slots: list[Path | None]
-    if queries:
-        slots = []
-        for i, q in enumerate(queries[:count]):
+    single: list[Path] | None = None               # 关键词模式：一轮搜索结果惰性缓存
+
+    async def _search_slot(i: int) -> Path | None:
+        nonlocal single
+        target = out_dir / f"img_{i}.jpg"
+        if queries:
+            q = queries[i] if i < len(queries) else queries[-1]
             try:
                 got = await fetch_pexels(q, 1, out_dir, api_key, name_prefix=f"tmp_{i}")
-                target = out_dir / f"img_{i}.jpg"
-                if got:
-                    got[0].rename(target)
-                slots.append(target if got else None)
             except Exception:
-                slots.append(None)
-        slots += [None] * (count - len(slots))
-    else:
-        try:
-            paths = await fetch_pexels(query, count, out_dir, api_key)
-        except Exception:
-            paths = []
-        slots = list(paths) + [None] * (count - len(paths))
+                return None
+            if got:
+                got[0].rename(target)
+                return target
+            return None
+        if single is None:                          # 同词搜 count 张（保证不重复）
+            try:
+                single = await fetch_pexels(query, count, out_dir, api_key)
+            except Exception:
+                single = []
+        if i < len(single):
+            if single[i] != target:
+                single[i].rename(target)
+            return target
+        return None
+
+    paths: list[Path] = []
     for i in range(count):
-        if slots[i] is None:
-            title = titles[i % len(titles)] if titles else query
-            slots[i] = make_fallback_image(title, out_dir / f"fallback_{i}.png", palette_index=i)
-    return slots[:count]
+        title = titles[i % len(titles)] if titles else query
+        target = out_dir / f"img_{i}.jpg"
+        img: Path | None = None
+        if gen_first and generate is not None:      # always 模式：生成优先，失败才搜图
+            img = await generate(title, target)
+        if img is None:
+            img = await _search_slot(i)
+        if img is None and generate is not None:    # auto 模式：搜不到才生成
+            img = await generate(title, target)
+        if img is None:
+            img = make_fallback_image(title, out_dir / f"fallback_{i}.png", palette_index=i)
+        paths.append(img)
+    return paths

@@ -78,3 +78,53 @@ async def test_collect_images_per_query_search(tmp_path, respx_mock):
     assert len(paths) == 2
     assert paths[0].name == "img_0.jpg" and paths[0].read_bytes().startswith(b"\xff\xd8")
     assert paths[1].name == "fallback_1.png" and paths[1].exists()
+
+
+def _fake_generate(record, ok=True):
+    from PIL import Image
+
+    async def generate(prompt, out_path):
+        record.append(prompt)
+        if not ok:
+            return None
+        Image.new("RGB", (100, 100), (200, 30, 30)).save(out_path)
+        return out_path
+    return generate
+
+
+@respx.mock
+@needs_font
+async def test_collect_images_generates_when_search_empty(tmp_path, respx_mock):
+    """auto 模式：搜图落空的槽位调用文生图，提示词=对应段落文字。"""
+    respx_mock.get("https://api.pexels.com/v1/search").mock(
+        httpx.Response(200, json={"photos": []}))
+    record: list[str] = []
+    paths = await collect_images("职场", 2, tmp_path, "fake-key",
+                                 titles=["第一段文字", "第二段文字"],
+                                 queries=["office worker", "crying baby"],
+                                 generate=_fake_generate(record))
+    assert len(paths) == 2 and all(p.name == "img_0.jpg" or p.name == "img_1.jpg"
+                                   for p in paths)
+    assert record == ["第一段文字", "第二段文字"]
+
+
+@respx.mock
+@needs_font
+async def test_collect_images_gen_first_skips_search(tmp_path, respx_mock):
+    """always 模式（gen_first）：生成成功即不搜图。"""
+    record: list[str] = []
+    paths = await collect_images("职场", 2, tmp_path, "fake-key",
+                                 titles=["第一段", "第二段"],
+                                 generate=_fake_generate(record), gen_first=True)
+    assert len(paths) == 2 and record == ["第一段", "第二段"]
+    assert respx_mock.calls == []                    # 未发起任何 Pexels 请求
+
+
+@respx.mock
+@needs_font
+async def test_collect_images_generate_fail_falls_to_card(tmp_path, respx_mock):
+    respx_mock.get("https://api.pexels.com/v1/search").mock(
+        httpx.Response(200, json={"photos": []}))
+    paths = await collect_images("职场", 1, tmp_path, "fake-key", titles=["第一段"],
+                                 generate=_fake_generate([], ok=False))
+    assert paths[0].name == "fallback_0.png"

@@ -14,7 +14,9 @@ cp config.example.toml config.toml   # 填 deepseek_api_key（https://platform.d
 
 > **FFmpeg 坑**：brew 默认的 ffmpeg（slim）不带 libass，`subtitles` 滤镜不可用，字幕会失败。必须 `brew install ffmpeg-full`，Linux 下需安装带 libass 的 ffmpeg 包。
 
-密钥也可以用环境变量：`BJH_DEEPSEEK_API_KEY`、`BJH_PEXELS_API_KEY`（Pexels 可选，无 Key 时用本地模板图）。
+密钥也可以用环境变量：`BJH_DEEPSEEK_API_KEY`、`BJH_PEXELS_API_KEY`、`BJH_IMAGEGEN_API_KEY`（Pexels 可选，无 Key 时用本地模板图）。
+
+**配图文生图兜底（可选）**：图库搜不到对应段落内容的图时，可用文生图模型按段落文案生成。任意 OpenAI 兼容 `/images/generations` 服务均可，默认配置为智谱 CogView（https://open.bigmodel.cn）：填 `imagegen_api_key` 即启用 `auto` 模式；嫌图库对应不上可设 `imagegen_mode = "always"` 全部改用生成图。
 
 ## 使用
 
