@@ -1106,7 +1106,7 @@ split_sentences(text: str) -> list[str]                       # 按 。！？!?�
 char_len(s: str) -> int                                       # 去标点空白后长度
 sentences_with_timing(words: list[Word], sentences: list[str]) -> list[Sentence]
 async def synthesize(text: str, voice: str, out_mp3: Path) -> list[Word]   # edge-tts，网络
-async def synthesize_with_retry(text, voice, out_mp3, retries=3) -> list[Word]  # 指数退避 2/4/8s
+async def synthesize_with_retry(text, voice, out_mp3, retries=3) -> list[Word]  # 指数退避(1s/2s)
 ```
 
 - [ ] **Step 1: 写失败测试 `tests/test_tts.py`**
