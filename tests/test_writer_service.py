@@ -55,3 +55,39 @@ def test_write_draft_needs_key_without_client(tmp_path):
     db = DB(tmp_path / "t.db")
     with pytest.raises(ValueError, match="deepseek_api_key"):
         write_draft(db, Config(), T)
+
+
+def test_image_queries_returns_per_segment_queries():
+    from bjh.writer.service import image_queries
+    qs = ["office salary", "city night", "worried parents",
+          "calculator budget", "crying baby", "family walk"]
+    c = FakeClient(json.dumps({"queries": qs}, ensure_ascii=False))
+    assert image_queries(c, GOOD["script"], 6) == qs
+
+
+def test_image_queries_cycles_when_fewer_than_n():
+    from bjh.writer.service import image_queries
+    c = FakeClient(json.dumps({"queries": ["office salary", "city night"]}, ensure_ascii=False))
+    out = image_queries(c, GOOD["script"], 6)
+    assert out == ["office salary", "city night", "office salary", "city night",
+                   "office salary", "city night"]
+
+
+def test_image_queries_returns_none_on_bad_output():
+    from bjh.writer.service import image_queries
+    assert image_queries(FakeClient("不是json"), GOOD["script"], 6) is None
+    assert image_queries(FakeClient(json.dumps({"queries": []})), GOOD["script"], 6) is None
+
+
+def test_image_queries_rejects_cjk_then_retries_translation():
+    """Pexels 只认英文：模型回中文时剔除并要求翻译重试；仍中文才放弃。"""
+    from bjh.writer.service import image_queries
+    zh = json.dumps({"queries": ["年轻人焦虑", "办公室加班"]}, ensure_ascii=False)
+    still_zh = json.dumps({"queries": ["还是中文"]}, ensure_ascii=False)
+    c = FakeClient(zh, still_zh)
+    assert image_queries(c, GOOD["script"], 4) is None
+    assert c.calls == 2                                       # 重试过一次
+    en = json.dumps({"queries": ["young man anxious", "office overtime"]})
+    ok = FakeClient(zh, en)
+    assert image_queries(ok, GOOD["script"], 4) == \
+        ["young man anxious", "office overtime", "young man anxious", "office overtime"]

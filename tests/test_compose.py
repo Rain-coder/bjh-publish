@@ -41,3 +41,32 @@ def test_compose_5s_sample(tmp_path):
         capture_output=True, text=True, check=True)
     assert probe.stdout.strip() == "1080,1920"
     assert 2.8 < audio_duration(out) < 3.3
+
+
+def _grab_frame(video: Path, t: float, out: Path):
+    subprocess.run([ffmpeg, "-y", "-ss", str(t), "-i", str(video), "-frames:v", "1", str(out)],
+                   check=True, capture_output=True)
+
+
+def _max_diff(a: Path, b: Path) -> int:
+    """两帧降采样后的最大灰度差：libx264 对渐变的逐点量化噪声被平均掉，
+    缩放运动/换图则保留（实测同段静态=0，跨段=23）。"""
+    from PIL import Image, ImageChops
+    d = ImageChops.difference(Image.open(a).convert("L").resize((32, 56)),
+                              Image.open(b).convert("L").resize((32, 56)))
+    return max(d.getextrema())
+
+
+def test_compose_static_no_zoom(tmp_path):
+    """回归：图片为静态整屏——同段两帧无运动（zoompan 缩放已按要求移除）。"""
+    mp3 = tmp_path / "a.mp3"
+    make_sine_mp3(mp3, 3.0)                       # 2 段各 1.5s
+    imgs = [make_fallback_image(f"画面{i}", tmp_path / f"img{i}.png", palette_index=i)
+            for i in range(2)]
+    out = tmp_path / "out.mp4"
+    compose_video(mp3, imgs, None, out)
+    _grab_frame(out, 0.4, tmp_path / "f1.png")
+    _grab_frame(out, 1.2, tmp_path / "f2.png")
+    _grab_frame(out, 2.5, tmp_path / "f3.png")
+    assert _max_diff(tmp_path / "f1.png", tmp_path / "f2.png") <= 2   # 同段 → 静止
+    assert _max_diff(tmp_path / "f1.png", tmp_path / "f3.png") > 10   # 换段 → 切图

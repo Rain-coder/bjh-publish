@@ -44,7 +44,8 @@ def make_fallback_image(title: str, out_path: Path, palette_index: int = 0) -> P
     return out_path
 
 
-async def fetch_pexels(query: str, count: int, out_dir: Path, api_key: str | None) -> list[Path]:
+async def fetch_pexels(query: str, count: int, out_dir: Path, api_key: str | None,
+                       name_prefix: str = "pexels") -> list[Path]:
     if not api_key:
         return []
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -60,21 +61,39 @@ async def fetch_pexels(query: str, count: int, out_dir: Path, api_key: str | Non
             r2 = await client.get(url)
             r2.raise_for_status()
             data = r2.content
-            p = out_dir / f"pexels_{i}.jpg"
+            p = out_dir / f"{name_prefix}_{i}.jpg"
             p.write_bytes(data)
             paths.append(p)
         return paths
 
 
 async def collect_images(query: str, count: int, out_dir: Path,
-                         api_key: str | None, titles: list[str]) -> list[Path]:
+                         api_key: str | None, titles: list[str],
+                         queries: list[str] | None = None) -> list[Path]:
+    """收集 count 张配图。queries 提供时第 i 个搜索词对应第 i 段旁白（逐词各搜 1 张）；
+    否则退回单一关键词搜一轮。搜不到的槽位用兜底文字卡片补齐。"""
     out_dir.mkdir(parents=True, exist_ok=True)
-    paths = []
-    try:
-        paths = await fetch_pexels(query, count, out_dir, api_key)
-    except Exception:
-        paths = []
-    for i in range(count - len(paths)):
-        title = titles[i % len(titles)] if titles else query
-        paths.append(make_fallback_image(title, out_dir / f"fallback_{i}.png", palette_index=i))
-    return paths[:count]
+    slots: list[Path | None]
+    if queries:
+        slots = []
+        for i, q in enumerate(queries[:count]):
+            try:
+                got = await fetch_pexels(q, 1, out_dir, api_key, name_prefix=f"tmp_{i}")
+                target = out_dir / f"img_{i}.jpg"
+                if got:
+                    got[0].rename(target)
+                slots.append(target if got else None)
+            except Exception:
+                slots.append(None)
+        slots += [None] * (count - len(slots))
+    else:
+        try:
+            paths = await fetch_pexels(query, count, out_dir, api_key)
+        except Exception:
+            paths = []
+        slots = list(paths) + [None] * (count - len(paths))
+    for i in range(count):
+        if slots[i] is None:
+            title = titles[i % len(titles)] if titles else query
+            slots[i] = make_fallback_image(title, out_dir / f"fallback_{i}.png", palette_index=i)
+    return slots[:count]

@@ -11,8 +11,22 @@ from bjh.studio.compose import audio_duration, compose_video
 from bjh.studio.images import collect_images
 from bjh.studio.subtitle import build_ass
 from bjh.studio.tts import split_sentences, sentences_with_timing, synthesize_with_retry
-from bjh.writer.service import write_draft
+from bjh.writer.deepseek import DeepSeekClient
+from bjh.writer.service import image_queries, write_draft
 from bjh.writer.topic import dedupe_topics, select_topics
+
+N_IMAGES = 6
+
+
+def segment_texts(script: str, n: int, limit: int = 12) -> list[str]:
+    """文案按句均分成 n 段取开头字样（兜底卡片/配图分段用，与画面时段一一对应）。"""
+    sents = split_sentences(script) or [script]
+    per = max(1, round(len(sents) / n))
+    groups = ["".join(sents[i * per:(i + 1) * per]) for i in range(n)]
+    texts = [g[:limit].strip() or script[:limit] for g in groups if g.strip()]
+    while len(texts) < n:
+        texts.append(script[:limit])
+    return texts
 
 
 async def build_video(db: DB, cfg: Config, draft: Draft, topic: Topic) -> Video | None:
@@ -24,9 +38,14 @@ async def build_video(db: DB, cfg: Config, draft: Draft, topic: Topic) -> Video 
         sents = sentences_with_timing(words, split_sentences(draft.script))
         ass = work / "subs.ass"        # 简单文件名，避免 subtitles 滤镜路径转义问题
         ass.write_text(build_ass(sents), encoding="utf-8")
-        images = await collect_images(topic.keyword, 6, work / "img",
+        # 配图与文案分段对应：DeepSeek 按旁白顺序生成 N 个英文搜索词（失败退回话题关键词）
+        queries = None
+        if cfg.pexels_api_key and cfg.deepseek_api_key:
+            client = DeepSeekClient(cfg.deepseek_api_key, cfg.deepseek_base_url, cfg.deepseek_model)
+            queries = image_queries(client, draft.script, N_IMAGES)
+        images = await collect_images(topic.keyword, N_IMAGES, work / "img",
                                       cfg.pexels_api_key or None,
-                                      [draft.title, draft.hook or draft.title])
+                                      segment_texts(draft.script, N_IMAGES), queries=queries)
         out = work / f"{draft.id}.mp4"
         compose_video(mp3, images, ass, out)
         v = Video(draft_id=draft.id, path=str(out), duration_sec=audio_duration(out),

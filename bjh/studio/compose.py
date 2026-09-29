@@ -16,7 +16,7 @@ def audio_duration(path: Path) -> float:
 
 def compose_video(audio_path: Path, image_paths: list[Path], ass_path: Path | None,
                   out_path: Path, fps: int = 30) -> Path:
-    """每张图占 audio_duration/len(images) 秒，zoompan Ken Burns 缓放，concat 后烧录 ASS 字幕。"""
+    """每张图占 audio_duration/len(images) 秒，静态整屏（无缩放动画），concat 后烧录 ASS 字幕。"""
     assert image_paths, "至少需要一张图"
     dur = audio_duration(audio_path)
     seg = dur / len(image_paths)
@@ -29,20 +29,15 @@ def compose_video(audio_path: Path, image_paths: list[Path], ass_path: Path | No
             shutil.copy(ass_path, safe_ass)
     cmd: list[str] = ["ffmpeg", "-y"]
     for img in image_paths:
-        cmd += ["-i", str(img)]           # 单帧输入：帧数扩展全部交给 zoompan d
+        # loop 输入把每图扩成 seg 秒静态流；静态图无逐帧变换滤镜，帧数只由 -t 决定不膨胀
+        cmd += ["-framerate", str(fps), "-loop", "1", "-t", f"{seg:.3f}", "-i", str(img)]
     cmd += ["-i", str(audio_path)]
     n = len(image_paths)
     parts = []
     for i in range(n):
-        d = max(1, int(seg * fps))
-        step = 0.2 / d                     # 该段内 zoom 1.0↔1.2 渐变
-        # 偶数段推近(1→1.2)、奇数段拉远(1.2→1)，on=输出帧序号（确定性，不依赖zoom累积）
-        z = (f"min(1+{step:.6f}*on,1.2)" if i % 2 == 0 else f"max(1.2-{step:.6f}*on,1.0)")
         parts.append(
             f"[{i}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
-            f"crop={W}:{H},"
-            f"zoompan=z='{z}':d={d}:"
-            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={fps},setsar=1[v{i}]")
+            f"crop={W}:{H},fps={fps},setsar=1[v{i}]")
     concat_in = "".join(f"[v{i}]" for i in range(n))
     chain = ";".join(parts) + f";{concat_in}concat=n={n}:v=1:a=0[v]"
     vmap = "[v]"

@@ -56,3 +56,25 @@ async def test_collect_images_falls_back_on_image_404(tmp_path, respx_mock):
     paths = await collect_images("职场", 1, tmp_path, "fake-key", titles=["标题A"])
     assert len(paths) == 1 and paths[0].exists()
     assert paths[0].name == "fallback_0.png"
+
+
+@respx.mock
+@needs_font
+async def test_collect_images_per_query_search(tmp_path, respx_mock):
+    """queries 模式：第 i 个搜索词对应第 i 张图，逐词各搜 1 张；某词落空仅该槽兜底。"""
+    respx_mock.get("https://api.pexels.com/v1/search",
+                   params={"query": "office worker", "per_page": 1,
+                           "orientation": "portrait"}).mock(httpx.Response(200, json={
+        "photos": [{"src": {"portrait": "https://img.example/a.jpg"}}]}))
+    respx_mock.get("https://api.pexels.com/v1/search",
+                   params={"query": "crying baby", "per_page": 1,
+                           "orientation": "portrait"}).mock(httpx.Response(200, json={
+        "photos": []}))
+    respx_mock.get("https://img.example/a.jpg").mock(
+        httpx.Response(200, content=b"\xff\xd8fakejpg"))
+    paths = await collect_images("职场", 2, tmp_path, "fake-key",
+                                 titles=["第一段", "第二段"],
+                                 queries=["office worker", "crying baby"])
+    assert len(paths) == 2
+    assert paths[0].name == "img_0.jpg" and paths[0].read_bytes().startswith(b"\xff\xd8")
+    assert paths[1].name == "fallback_1.png" and paths[1].exists()
