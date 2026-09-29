@@ -106,12 +106,8 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
         v = db.get_video(video_id)
         if not v:
             raise HTTPException(404, "视频不存在")
-        # 已发布/发布中的帖子有关联记录，不允许删（历史可追溯）
-        active = [p for p in db.list_posts(limit=1000)
-                  if p.video_id == video_id and p.status in ("publishing", "published")]
-        if active:
-            raise HTTPException(400, "该视频已发布或正在发布，不能删除")
-        db.delete_posts_for_video(video_id)          # 连带清理排队/失败帖
+        # 已发布视频也允许删（仅清本地记录和文件，百家号平台上的帖子不受影响）
+        db.delete_posts_for_video(video_id)
         db.delete_video(video_id)
         # 删除磁盘产物：视频文件所在工作目录（音频/图片/字幕），约束在 data/videos 内防误删
         if v.path:

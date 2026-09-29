@@ -94,14 +94,15 @@ def test_delete_video_cascades_queue_and_files(tmp_path, monkeypatch):
     assert c.delete("/api/videos/1").status_code == 404
 
 
-def test_delete_video_blocks_published(tmp_path, monkeypatch):
+def test_delete_video_allows_published(tmp_path, monkeypatch):
+    """已发布视频也可删：本地记录+帖子级联清理，不影响平台。"""
     db, c = make(tmp_path, monkeypatch)
     pid = db.queue_post(1, 1, "2026-09-29T10:00:00")
     p = db.list_posts()[0]
     p.status, p.bjh_url = "published", "https://bjh.baidu.com/s?id=1"
     db.update_post(p)
-    assert c.delete("/api/videos/1").status_code == 400
-    assert db.get_video(1) is not None
+    assert c.delete("/api/videos/1").json() == {"ok": True}
+    assert db.get_video(1) is None and db.list_posts() == []
 
 
 def test_delete_video_ignores_files_outside_videos_dir(tmp_path, monkeypatch):
