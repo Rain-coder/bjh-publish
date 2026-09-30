@@ -30,6 +30,7 @@ class ConfigPatch(BaseModel):
     daily_limit: int | None = None
     interval_min_min: int | None = None
     interval_max_min: int | None = None
+    tts_voice: str | None = None
 
 
 class FetchReq(BaseModel):
@@ -151,7 +152,7 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
     @app.get("/api/config")
     def get_config():
         return {"daily_limit": cfg.daily_limit, "interval_min_min": cfg.interval_min_min,
-                "interval_max_min": cfg.interval_max_min}
+                "interval_max_min": cfg.interval_max_min, "tts_voice": cfg.tts_voice}
 
     @app.patch("/api/config")
     def patch_config(body: ConfigPatch):

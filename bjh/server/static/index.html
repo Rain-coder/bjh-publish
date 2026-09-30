@@ -75,6 +75,19 @@
         间隔下限(分) <input type="number" x-model.number="c.interval_min_min" @change="saveCfg()" class="bg-gray-900 rounded px-2 py-1 w-20">
         间隔上限(分) <input type="number" x-model.number="c.interval_max_min" @change="saveCfg()" class="bg-gray-900 rounded px-2 py-1 w-20">
       </div>
+      <div class="flex items-center gap-2 mb-3">
+        配音音色
+        <select x-model="c.tts_voice" @change="saveCfg()" class="bg-gray-900 rounded px-2 py-1">
+          <option value="zh-CN-XiaoxiaoNeural">晓晓 · 标准女声（默认）</option>
+          <option value="zh-CN-XiaoyiNeural">晓伊 · 年轻女声 · 活泼</option>
+          <option value="zh-CN-YunxiNeural">云希 · 年轻男声 · 自然口语</option>
+          <option value="zh-CN-YunjianNeural">云健 · 浑厚男声 · 故事感</option>
+          <option value="zh-CN-YunyangNeural">云扬 · 标准男声 · 新闻播报</option>
+          <option value="zh-CN-liaoning-XiaobeiNeural">晓贝 · 东北女声 · 接地气</option>
+          <option value="zh-CN-shaanxi-XiaoniNeural">晓妮 · 陕西女声</option>
+        </select>
+        <span class="text-gray-500 text-sm">切换后对新视频生效</span>
+      </div>
       <template x-for="a in accounts"><div class="bg-gray-900 rounded p-3 mb-2 flex justify-between">
         <span x-text="a.name + (a.status==='expired' ? ' ⚠Cookie失效，请 bjh login' : '')"></span>
         <span x-text="'日上限 '+a.daily_limit"></span>
