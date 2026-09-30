@@ -50,7 +50,9 @@ def test_topic_select_and_draft_video_post_flow(tmp_path):
     posts = db.due_posts("2026-09-29T12:00:00")
     assert len(posts) == 1 and posts[0].id == pid and posts[0].status == "queued"
     posts[0].status = "published"
-    posts[0].published_at = "2026-09-29T12:01:00"
+    # published_today 只数当天——用动态日期，避免隔天跑测试就挂
+    from datetime import datetime
+    posts[0].published_at = datetime.now().isoformat(timespec="seconds")
     posts[0].bjh_url = "https://baijiahao.baidu.com/s?id=1"
     db.update_post(posts[0])
     assert db.published_today(1) == 1
