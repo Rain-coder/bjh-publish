@@ -49,12 +49,16 @@ def test_patch_account_and_config(tmp_path, monkeypatch):
     assert c.patch("/api/accounts/1", json={"daily_limit": 5}).json() == {"ok": True}
     assert db.get_account("default").daily_limit == 5
     r = c.patch("/api/config", json={"interval_min_min": 30, "interval_max_min": 60,
-                                     "tts_voice": "zh-CN-YunxiNeural"})
+                                     "tts_voice": "zh-CN-YunxiNeural",
+                                     "orientation": "portrait"})
     assert r.json()["interval_min_min"] == 30
     assert r.json()["tts_voice"] == "zh-CN-YunxiNeural"
+    assert r.json()["orientation"] == "portrait"
     toml = (tmp_path / "config.toml").read_text(encoding="utf-8")
     assert "interval_min_min = 30" in toml
     assert 'tts_voice = "zh-CN-YunxiNeural"' in toml
+    assert 'orientation = "portrait"' in toml
+    assert c.patch("/api/config", json={"orientation": "square"}).status_code == 400
 
 
 def test_screenshot_route_serves_and_blocks_traversal(tmp_path, monkeypatch):

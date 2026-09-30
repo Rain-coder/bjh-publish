@@ -3,8 +3,13 @@ import shutil
 import subprocess
 from pathlib import Path
 
-W, H = 1080, 1920
+SIZES = {"landscape": (1920, 1080), "portrait": (1080, 1920)}
 XFADE_DUR = 0.5        # 相邻画面交叉溶解时长（秒）
+
+
+def size_for(orientation: str) -> tuple[int, int]:
+    """方向 → 画布 (宽, 高)；未知值按横屏处理。"""
+    return SIZES.get(orientation, SIZES["landscape"])
 
 
 def audio_duration(path: Path) -> float:
@@ -16,12 +21,15 @@ def audio_duration(path: Path) -> float:
 
 
 def compose_video(audio_path: Path, image_paths: list[Path], ass_path: Path | None,
-                  out_path: Path, fps: int = 30, transition: str = "fade") -> Path:
+                  out_path: Path, fps: int = 30, transition: str = "fade",
+                  orientation: str = "landscape") -> Path:
     """每张图静态整屏，段落间 xfade 交叉溶解（总长严格等于音频），最后烧录 ASS 字幕。
 
+    orientation 决定输出分辨率（横屏 1920x1080 / 竖屏 1080x1920）。
     转场重叠会吃掉 (n-1)*d 秒，故每段加长补偿：seg = (dur + (n-1)*d) / n；
     第 k 个转场的起点 offset = k*(seg-d)，逐级递增。"""
     assert image_paths, "至少需要一张图"
+    W, H = size_for(orientation)
     dur = audio_duration(audio_path)
     n = len(image_paths)
     d = XFADE_DUR if n > 1 else 0.0

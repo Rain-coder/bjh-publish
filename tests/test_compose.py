@@ -33,14 +33,21 @@ def test_compose_5s_sample(tmp_path):
     ass = tmp_path / "sub.ass"
     ass.write_text(build_ass(sents), encoding="utf-8")
     out = tmp_path / "out.mp4"
-    compose_video(mp3, imgs, ass, out)
+    compose_video(mp3, imgs, ass, out)              # 默认横屏
     assert out.exists() and out.stat().st_size > 10000
     probe = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
          "stream=width,height", "-of", "csv=p=0", str(out)],
         capture_output=True, text=True, check=True)
-    assert probe.stdout.strip() == "1080,1920"
+    assert probe.stdout.strip() == "1920,1080"
     assert 2.8 < audio_duration(out) < 3.3
+    out2 = tmp_path / "out_portrait.mp4"
+    compose_video(mp3, imgs, ass, out2, orientation="portrait")
+    probe2 = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+         "stream=width,height", "-of", "csv=p=0", str(out2)],
+        capture_output=True, text=True, check=True)
+    assert probe2.stdout.strip() == "1080,1920"
 
 
 def _grab_frame(video: Path, t: float, out: Path):

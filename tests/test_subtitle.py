@@ -16,7 +16,10 @@ def test_ass_time():
 
 def test_build_ass_structure():
     sents = [Sentence("第一句", 0.0, 2.0), Sentence("第二句超长超长超长超长超长超长超长超长", 2.0, 5.0)]
-    ass = build_ass(sents)
+    ass = build_ass(sents)                     # 默认横屏
     assert "[Script Info]" in ass and "1080" in ass and "1920" in ass
+    assert "PlayResX: 1920" in ass and "PlayResY: 1080" in ass
     assert "Dialogue: 0,0:00:00.00,0:00:02.00,Default,第一句" in ass
     assert "\\N" in ass          # 长句换行
+    port = build_ass(sents, orientation="portrait")
+    assert "PlayResX: 1080" in port and "PlayResY: 1920" in port

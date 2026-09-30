@@ -37,7 +37,7 @@ async def build_video(db: DB, cfg: Config, draft: Draft, topic: Topic) -> Video 
         words = await synthesize_with_retry(draft.script, cfg.tts_voice, mp3, rate=cfg.tts_rate)
         sents = sentences_with_timing(words, split_sentences(draft.script))
         ass = work / "subs.ass"        # 简单文件名，避免 subtitles 滤镜路径转义问题
-        ass.write_text(build_ass(sents), encoding="utf-8")
+        ass.write_text(build_ass(sents, orientation=cfg.orientation), encoding="utf-8")
         # 配图与文案分段对应：DeepSeek 按旁白顺序生成 N 个英文搜索词（失败退回话题关键词）
         queries = None
         if cfg.pexels_api_key and cfg.deepseek_api_key:
@@ -47,17 +47,19 @@ async def build_video(db: DB, cfg: Config, draft: Draft, topic: Topic) -> Video 
         generate = None
         if cfg.imagegen_api_key and cfg.imagegen_mode != "off":
             from bjh.studio.imagegen import generate_image
+            shape = "竖版" if cfg.orientation == "portrait" else "横屏"
 
             async def generate(prompt: str, out_path: Path):
                 return await generate_image(
-                    prompt + "。竖版短视频配图，真实感摄影风格，画面干净无文字", out_path, cfg)
+                    prompt + f"。{shape}短视频配图，真实感摄影风格，画面干净无文字", out_path, cfg)
         images = await collect_images(topic.keyword, N_IMAGES, work / "img",
                                       cfg.pexels_api_key or None,
                                       segment_texts(draft.script, N_IMAGES, limit=40),
                                       queries=queries, generate=generate,
-                                      gen_first=cfg.imagegen_mode == "always")
+                                      gen_first=cfg.imagegen_mode == "always",
+                                      orientation=cfg.orientation)
         out = work / f"{draft.id}.mp4"
-        compose_video(mp3, images, ass, out)
+        compose_video(mp3, images, ass, out, orientation=cfg.orientation)
         v = Video(draft_id=draft.id, path=str(out), duration_sec=audio_duration(out),
                   size_bytes=out.stat().st_size, cost=draft.cost, status="ok",
                   error=None, created_at=datetime.now().isoformat(timespec="seconds"))

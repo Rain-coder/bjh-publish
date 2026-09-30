@@ -96,6 +96,14 @@
         </select>
         <span class="text-gray-500 text-sm">切换后对新视频生效</span>
       </div>
+      <div class="flex items-center gap-2 mb-3">
+        视频方向
+        <select x-model="c.orientation" @change="saveCfg()" class="bg-gray-900 rounded px-2 py-1">
+          <option value="landscape">横屏 1920×1080（默认）</option>
+          <option value="portrait">竖屏 1080×1920</option>
+        </select>
+        <span class="text-gray-500 text-sm">对新视频生效：影响合成分辨率、搜图方向、字幕样式</span>
+      </div>
       <template x-for="a in accounts"><div class="bg-gray-900 rounded p-3 mb-2 flex justify-between">
         <span x-text="a.name + (a.status==='expired' ? ' ⚠Cookie失效，请 bjh login' : '')"></span>
         <span x-text="'日上限 '+a.daily_limit"></span>

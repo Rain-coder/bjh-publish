@@ -8,6 +8,7 @@ imagegen_base_url = "https://open.bigmodel.cn/api/paas/v4"
 imagegen_model = "cogview-3-plus"
 imagegen_size = "768x1344"
 imagegen_mode = "auto"            # auto=搜不到才生成 | always=全部生成 | off
+orientation = "landscape"         # 视频方向：landscape=横屏 1920x1080 | portrait=竖屏 1080x1920
 daily_limit = 8
 interval_min_min = 25
 interval_max_min = 50

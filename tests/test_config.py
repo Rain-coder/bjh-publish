@@ -9,6 +9,7 @@ def test_defaults_when_no_file(tmp_path, monkeypatch):
     assert cfg.interval_min_min == 25 and cfg.interval_max_min == 50
     assert cfg.golden_hours == [[7, 9], [12, 14], [18, 22]]
     assert "震惊" in cfg.sensitive_words
+    assert cfg.orientation == "landscape"          # 默认横屏 1920x1080
 
 
 def test_load_toml_and_env_override(tmp_path, monkeypatch):

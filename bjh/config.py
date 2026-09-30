@@ -25,6 +25,8 @@ class Config:
     imagegen_model: str = "cogview-3-plus"
     imagegen_size: str = "768x1344"                                    # 竖版 9:16
     imagegen_mode: str = "auto"        # auto=搜不到才生成 | always=全部生成 | off
+    # 视频方向：landscape=横屏 1920x1080 | portrait=竖屏 1080x1920
+    orientation: str = "landscape"
     daily_limit: int = 8
     interval_min_min: int = 25
     interval_max_min: int = 50
@@ -56,7 +58,7 @@ def load_config(path: str | None = None) -> Config:
 
 _SAVE_FIELDS = ("deepseek_api_key", "deepseek_base_url", "deepseek_model", "pexels_api_key",
                 "tts_voice", "tts_rate", "imagegen_api_key", "imagegen_base_url",
-                "imagegen_model", "imagegen_size", "imagegen_mode",
+                "imagegen_model", "imagegen_size", "imagegen_mode", "orientation",
                 "daily_limit", "interval_min_min", "interval_max_min")
 
 

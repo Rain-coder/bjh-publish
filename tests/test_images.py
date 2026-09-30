@@ -17,9 +17,12 @@ needs_font = pytest.mark.skipif(not HAS_FONT, reason="无系统中文字体")
 @needs_font
 def test_fallback_image_generated(tmp_path):
     out = tmp_path / "bg0.png"
-    make_fallback_image("测试标题", out, palette_index=1)
+    make_fallback_image("测试标题", out, palette_index=1)          # 默认横屏
     img = Image.open(out)
-    assert img.size == (1080, 1920)
+    assert img.size == (1920, 1080)
+    make_fallback_image("测试标题", tmp_path / "bg1.png", palette_index=1,
+                        orientation="portrait")
+    assert Image.open(tmp_path / "bg1.png").size == (1080, 1920)
 
 
 def test_find_font_returns_existing_path():
@@ -38,12 +41,13 @@ async def test_collect_images_falls_back_when_no_key(tmp_path, monkeypatch):
 
 @respx.mock
 async def test_fetch_pexels_downloads(tmp_path, respx_mock):
-    respx_mock.get("https://api.pexels.com/v1/search").mock(httpx.Response(200, json={
-        "photos": [{"src": {"portrait": "https://img.example/1.jpg"}}]}))
+    respx_mock.get("https://api.pexels.com/v1/search",
+                   params={"orientation": "landscape"}).mock(httpx.Response(200, json={
+        "photos": [{"src": {"landscape": "https://img.example/1.jpg"}}]}))
     respx_mock.get("https://img.example/1.jpg").mock(
         httpx.Response(200, content=b"\xff\xd8fakejpg"))
     from bjh.studio.images import fetch_pexels
-    paths = await fetch_pexels("职场", 1, tmp_path, "fake-key")
+    paths = await fetch_pexels("职场", 1, tmp_path, "fake-key")   # 默认横屏
     assert len(paths) == 1 and paths[0].read_bytes().startswith(b"\xff\xd8")
 
 
@@ -51,7 +55,7 @@ async def test_fetch_pexels_downloads(tmp_path, respx_mock):
 @needs_font
 async def test_collect_images_falls_back_on_image_404(tmp_path, respx_mock):
     respx_mock.get("https://api.pexels.com/v1/search").mock(httpx.Response(200, json={
-        "photos": [{"src": {"portrait": "https://img.example/1.jpg"}}]}))
+        "photos": [{"src": {"landscape": "https://img.example/1.jpg"}}]}))
     respx_mock.get("https://img.example/1.jpg").mock(httpx.Response(404, content=b"not found"))
     paths = await collect_images("职场", 1, tmp_path, "fake-key", titles=["标题A"])
     assert len(paths) == 1 and paths[0].exists()
@@ -64,11 +68,11 @@ async def test_collect_images_per_query_search(tmp_path, respx_mock):
     """queries 模式：第 i 个搜索词对应第 i 张图，逐词各搜 1 张；某词落空仅该槽兜底。"""
     respx_mock.get("https://api.pexels.com/v1/search",
                    params={"query": "office worker", "per_page": 1,
-                           "orientation": "portrait"}).mock(httpx.Response(200, json={
-        "photos": [{"src": {"portrait": "https://img.example/a.jpg"}}]}))
+                           "orientation": "landscape"}).mock(httpx.Response(200, json={
+        "photos": [{"src": {"landscape": "https://img.example/a.jpg"}}]}))
     respx_mock.get("https://api.pexels.com/v1/search",
                    params={"query": "crying baby", "per_page": 1,
-                           "orientation": "portrait"}).mock(httpx.Response(200, json={
+                           "orientation": "landscape"}).mock(httpx.Response(200, json={
         "photos": []}))
     respx_mock.get("https://img.example/a.jpg").mock(
         httpx.Response(200, content=b"\xff\xd8fakejpg"))

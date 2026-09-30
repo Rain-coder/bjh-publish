@@ -2,8 +2,8 @@
 import httpx
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
+from bjh.studio.compose import size_for
 
-W, H = 1080, 1920
 PALETTES = [((24, 30, 60), (90, 60, 160)), ((10, 60, 70), (20, 140, 130)),
             ((70, 20, 40), (170, 60, 90))]
 FONT_CANDIDATES = [
@@ -22,8 +22,10 @@ def find_font() -> str:
     raise FileNotFoundError("未找到系统中文字体，请安装 PingFang/黑体/Noto CJK")
 
 
-def make_fallback_image(title: str, out_path: Path, palette_index: int = 0) -> Path:
+def make_fallback_image(title: str, out_path: Path, palette_index: int = 0,
+                        orientation: str = "landscape") -> Path:
     c1, c2 = PALETTES[palette_index % len(PALETTES)]
+    W, H = size_for(orientation)
     img = Image.new("RGB", (W, H))
     for y in range(H):                      # 垂直渐变
         t = y / H
@@ -45,19 +47,20 @@ def make_fallback_image(title: str, out_path: Path, palette_index: int = 0) -> P
 
 
 async def fetch_pexels(query: str, count: int, out_dir: Path, api_key: str | None,
-                       name_prefix: str = "pexels") -> list[Path]:
+                       name_prefix: str = "pexels", orientation: str = "landscape") -> list[Path]:
     if not api_key:
         return []
+    ori = "portrait" if orientation == "portrait" else "landscape"
     out_dir.mkdir(parents=True, exist_ok=True)
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get("https://api.pexels.com/v1/search",
                              headers={"Authorization": api_key},
-                             params={"query": query, "per_page": count, "orientation": "portrait"})
+                             params={"query": query, "per_page": count, "orientation": ori})
         r.raise_for_status()
         photos = r.json().get("photos", [])
         paths = []
         for i, ph in enumerate(photos[:count]):
-            url = ph["src"]["portrait"]
+            url = ph["src"][ori]      # 取对应方向裁好的变体，后续 scale+crop 只微调
             r2 = await client.get(url)
             r2.raise_for_status()
             data = r2.content
@@ -70,11 +73,12 @@ async def fetch_pexels(query: str, count: int, out_dir: Path, api_key: str | Non
 async def collect_images(query: str, count: int, out_dir: Path,
                          api_key: str | None, titles: list[str],
                          queries: list[str] | None = None, generate=None,
-                         gen_first: bool = False) -> list[Path]:
+                         gen_first: bool = False, orientation: str = "landscape") -> list[Path]:
     """收集 count 张配图，槽位 i 与文案第 i 段对应。
     每槽取图优先级：gen_first=True 时 生成→搜图（always 模式），否则 搜图→生成（auto 模式）；
     全落空用兜底文字卡片。generate 为 async (prompt, out_path) -> Path|None。
-    queries 提供时逐槽各搜 1 张（第 i 词对应第 i 段）；否则单一关键词搜一轮取不同图。"""
+    queries 提供时逐槽各搜 1 张（第 i 词对应第 i 段）；否则单一关键词搜一轮取不同图。
+    orientation 决定搜图方向与兜底卡片画布（横屏 landscape / 竖屏 portrait）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
     single: list[Path] | None = None               # 关键词模式：一轮搜索结果惰性缓存
 
@@ -84,7 +88,8 @@ async def collect_images(query: str, count: int, out_dir: Path,
         if queries:
             q = queries[i] if i < len(queries) else queries[-1]
             try:
-                got = await fetch_pexels(q, 1, out_dir, api_key, name_prefix=f"tmp_{i}")
+                got = await fetch_pexels(q, 1, out_dir, api_key, name_prefix=f"tmp_{i}",
+                                         orientation=orientation)
             except Exception:
                 return None
             if got:
@@ -93,7 +98,8 @@ async def collect_images(query: str, count: int, out_dir: Path,
             return None
         if single is None:                          # 同词搜 count 张（保证不重复）
             try:
-                single = await fetch_pexels(query, count, out_dir, api_key)
+                single = await fetch_pexels(query, count, out_dir, api_key,
+                                            orientation=orientation)
             except Exception:
                 single = []
         if i < len(single):
@@ -114,6 +120,7 @@ async def collect_images(query: str, count: int, out_dir: Path,
         if img is None and generate is not None:    # auto 模式：搜不到才生成
             img = await generate(title, target)
         if img is None:
-            img = make_fallback_image(title, out_dir / f"fallback_{i}.png", palette_index=i)
+            img = make_fallback_image(title, out_dir / f"fallback_{i}.png", palette_index=i,
+                                      orientation=orientation)
         paths.append(img)
     return paths
