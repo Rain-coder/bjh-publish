@@ -157,3 +157,29 @@ def test_unblock_draft_rebuilds_video(tmp_path, monkeypatch):
     assert calls == [1] and db.get_draft(1).status == "ok"
     assert api_mod.JOB["last"]["ok"] is True
     assert c.post("/api/drafts/1/unblock").status_code == 400   # 非 blocked 拒绝
+
+
+def test_retry_failed_post(tmp_path, monkeypatch):
+    import time as _t
+    import bjh.scheduler as sched
+    from bjh.server import api as api_mod
+    db, c = make(tmp_path, monkeypatch)
+    assert c.post("/api/posts/999/retry").status_code == 404
+    pid = db.queue_post(1, 1, "2026-09-29T10:00:00")
+    p = db.list_posts()[0]
+    p.status, p.error = "failed", "发布超时"
+    db.update_post(p)
+
+    async def fake_run(db_, cfg_, dry_run=False, publish_fn=None):
+        return "published"
+    monkeypatch.setattr(sched, "run_once", fake_run)
+
+    assert c.post(f"/api/posts/{pid}/retry").status_code == 200
+    for _ in range(150):                     # 等后台 job 线程完成
+        if api_mod.JOB["running"] is None:
+            break
+        _t.sleep(0.02)
+    p2 = db.get_post(pid)
+    assert p2.status == "queued" and p2.error is None
+    assert p2.scheduled_at >= "2026-09-29T10:00:00"            # 已重置为点击时刻
+    assert c.post(f"/api/posts/{pid}/retry").status_code == 400  # 非 failed 拒绝

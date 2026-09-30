@@ -206,6 +206,9 @@ class DB:
             "ORDER BY scheduled_at LIMIT 1", (now_iso,))
         return [self._row("posts", r) for r in rows]
 
+    def get_post(self, post_id: int) -> Post | None:
+        return self._get("posts", "id=?", post_id)
+
     def list_posts(self, status: str | None = None, limit: int = 100) -> list[Post]:
         _, cols = _COLS["posts"]
         if status:

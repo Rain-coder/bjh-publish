@@ -157,6 +157,23 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
     def posts(status: str | None = None):
         return [asdict(p) for p in db.list_posts(status, limit=200)]
 
+    @app.post("/api/posts/{post_id}/retry")
+    def retry_post(post_id: int):
+        """失败帖子重发：重置为 queued（scheduled_at=now）并立刻走一次发布流程。"""
+        p = db.get_post(post_id)
+        if not p:
+            raise HTTPException(404, "帖子不存在")
+        if p.status != "failed":
+            raise HTTPException(400, f"帖子状态是 {p.status}，只有失败的帖子能重发")
+        p.status, p.error = "queued", None
+        p.scheduled_at = datetime.now().isoformat(timespec="seconds")
+        db.update_post(p)
+
+        def fn():
+            from bjh.scheduler import run_once
+            return asyncio.run(run_once(db, cfg))
+        return _run_job(f"重发:{post_id}", fn)
+
     @app.post("/api/posts")
     def queue(body: QueueReq):
         v = db.get_video(body.video_id)

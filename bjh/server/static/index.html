@@ -68,7 +68,10 @@
         <template x-for="p in posts"><tr class="border-b border-gray-800">
           <td x-text="'#'+p.id"></td><td x-text="p.status"></td>
           <td x-text="p.scheduled_at"></td><td x-text="p.bjh_url||p.error||''"></td>
-          <td><a x-show="p.screenshot_path" :href="'/api/screenshots/'+encodeURIComponent(p.screenshot_path.split('/').pop())" target="_blank" class="underline">截图</a></td>
+          <td>
+            <button x-show="p.status==='failed'" @click="retryPost(p)" class="bg-amber-700 px-2 py-1 rounded text-sm mr-1">重发</button>
+            <a x-show="p.screenshot_path" :href="'/api/screenshots/'+encodeURIComponent(p.screenshot_path.split('/').pop())" target="_blank" class="underline">截图</a>
+          </td>
         </tr></template>
       </tbody></table>
     </section>
@@ -144,6 +147,10 @@ function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],a
     this.refresh()},
   async unblock(t){if(!confirm('解除「'+t.title+'」的文案拦截并重建视频？'))return;
     const r=await fetch('/api/drafts/'+t.blocked_draft_id+'/unblock',{method:'POST'});
+    if(!r.ok){alert((await r.json()).detail||r.statusText);return}
+    this.refresh()},
+  async retryPost(p){if(!confirm('重新发布这条失败的视频？'))return;
+    const r=await fetch('/api/posts/'+p.id+'/retry',{method:'POST'});
     if(!r.ok){alert((await r.json()).detail||r.statusText);return}
     this.refresh()}
 }}
