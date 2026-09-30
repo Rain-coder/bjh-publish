@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 W, H = 1080, 1920
+XFADE_DUR = 0.5        # 相邻画面交叉溶解时长（秒）
 
 
 def audio_duration(path: Path) -> float:
@@ -15,11 +16,16 @@ def audio_duration(path: Path) -> float:
 
 
 def compose_video(audio_path: Path, image_paths: list[Path], ass_path: Path | None,
-                  out_path: Path, fps: int = 30) -> Path:
-    """每张图占 audio_duration/len(images) 秒，静态整屏（无缩放动画），concat 后烧录 ASS 字幕。"""
+                  out_path: Path, fps: int = 30, transition: str = "fade") -> Path:
+    """每张图静态整屏，段落间 xfade 交叉溶解（总长严格等于音频），最后烧录 ASS 字幕。
+
+    转场重叠会吃掉 (n-1)*d 秒，故每段加长补偿：seg = (dur + (n-1)*d) / n；
+    第 k 个转场的起点 offset = k*(seg-d)，逐级递增。"""
     assert image_paths, "至少需要一张图"
     dur = audio_duration(audio_path)
-    seg = dur / len(image_paths)
+    n = len(image_paths)
+    d = XFADE_DUR if n > 1 else 0.0
+    seg = (dur + (n - 1) * d) / n if n > 1 else dur
     safe_ass: Path | None = None
     if ass_path:
         # subtitles= 滤镜路径若含 : 或空格需转义；复制为简单名规避
@@ -32,17 +38,26 @@ def compose_video(audio_path: Path, image_paths: list[Path], ass_path: Path | No
         # loop 输入把每图扩成 seg 秒静态流；静态图无逐帧变换滤镜，帧数只由 -t 决定不膨胀
         cmd += ["-framerate", str(fps), "-loop", "1", "-t", f"{seg:.3f}", "-i", str(img)]
     cmd += ["-i", str(audio_path)]
-    n = len(image_paths)
     parts = []
     for i in range(n):
+        # format=yuv420p：xfade 要求所有输入像素格式一致
         parts.append(
             f"[{i}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
-            f"crop={W}:{H},fps={fps},setsar=1[v{i}]")
-    concat_in = "".join(f"[v{i}]" for i in range(n))
-    chain = ";".join(parts) + f";{concat_in}concat=n={n}:v=1:a=0[v]"
-    vmap = "[v]"
+            f"crop={W}:{H},fps={fps},setsar=1,format=yuv420p[v{i}]")
+    if n == 1:
+        chain = ";".join(parts)
+        vmap = "[v0]"
+    else:
+        prev = "[v0]"
+        for k in range(1, n):
+            label = f"[x{k}]" if k < n - 1 else "[v]"
+            parts.append(f"{prev}[v{k}]xfade=transition={transition}"
+                         f":duration={d:.3f}:offset={k * (seg - d):.3f}{label}")
+            prev = label
+        chain = ";".join(parts)
+        vmap = "[v]"
     if safe_ass:
-        chain += f";[v]subtitles=filename='{safe_ass}'[vout]"
+        chain += f";{vmap}subtitles=filename='{safe_ass}'[vout]"
         vmap = "[vout]"
     cmd += ["-filter_complex", chain, "-map", vmap, "-map", f"{n}:a",
             "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",

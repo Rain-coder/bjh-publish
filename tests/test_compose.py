@@ -58,15 +58,19 @@ def _max_diff(a: Path, b: Path) -> int:
 
 
 def test_compose_static_no_zoom(tmp_path):
-    """回归：图片为静态整屏——同段两帧无运动（zoompan 缩放已按要求移除）。"""
+    """回归：同段静止、段间 xfade 交叉溶解（seg=(3+0.5)/2=1.75s，转场 1.25~1.75s）。"""
     mp3 = tmp_path / "a.mp3"
-    make_sine_mp3(mp3, 3.0)                       # 2 段各 1.5s
+    make_sine_mp3(mp3, 3.0)
     imgs = [make_fallback_image(f"画面{i}", tmp_path / f"img{i}.png", palette_index=i)
             for i in range(2)]
     out = tmp_path / "out.mp4"
     compose_video(mp3, imgs, None, out)
-    _grab_frame(out, 0.4, tmp_path / "f1.png")
-    _grab_frame(out, 1.2, tmp_path / "f2.png")
-    _grab_frame(out, 2.5, tmp_path / "f3.png")
+    _grab_frame(out, 0.4, tmp_path / "f1.png")     # 段 0 纯帧
+    _grab_frame(out, 1.0, tmp_path / "f2.png")     # 段 0 纯帧（转场前 0.25s）
+    _grab_frame(out, 1.5, tmp_path / "fm.png")     # 转场中点（两图混合）
+    _grab_frame(out, 2.5, tmp_path / "f3.png")     # 段 1 纯帧
     assert _max_diff(tmp_path / "f1.png", tmp_path / "f2.png") <= 2   # 同段 → 静止
     assert _max_diff(tmp_path / "f1.png", tmp_path / "f3.png") > 10   # 换段 → 切图
+    # 转场存在：中点帧是两图混合，与两端都有可见差异
+    assert _max_diff(tmp_path / "fm.png", tmp_path / "f1.png") > 2
+    assert _max_diff(tmp_path / "fm.png", tmp_path / "f3.png") > 2
