@@ -207,3 +207,19 @@ def test_run_pipeline_publishes_one(tmp_path, monkeypatch):
         _t.sleep(0.02)
     assert fired == ["make", "publish"]
     assert api_mod.JOB["last"]["ok"] and "已发布 1 条" in api_mod.JOB["last"]["result"]
+
+
+def test_patch_post_reschedule(tmp_path, monkeypatch):
+    db, c = make(tmp_path, monkeypatch)
+    pid = db.queue_post(1, 1, "2026-09-30T10:00:00")
+    # 宽松格式解析
+    r = c.patch(f"/api/posts/{pid}", json={"scheduled_at": "2026-10-01 09:05"})
+    assert r.json() == {"ok": True, "scheduled_at": "2026-10-01T09:05:00"}
+    assert db.get_post(pid).scheduled_at == "2026-10-01T09:05:00"
+    assert c.patch("/api/posts/999", json={"scheduled_at": "x"}).status_code == 404
+    assert c.patch(f"/api/posts/{pid}", json={"scheduled_at": "乱写"}).status_code == 400
+    # 非 queued 不可改
+    p = db.get_post(pid)
+    p.status = "published"
+    db.update_post(p)
+    assert c.patch(f"/api/posts/{pid}", json={"scheduled_at": "2026-10-01 09:05"}).status_code == 400

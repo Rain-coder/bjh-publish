@@ -69,6 +69,7 @@
           <td x-text="'#'+p.id"></td><td x-text="p.status"></td>
           <td x-text="p.scheduled_at"></td><td x-text="p.bjh_url||p.error||''"></td>
           <td>
+            <button x-show="p.status==='queued'" @click="reschedule(p)" class="bg-blue-900 px-2 py-1 rounded text-sm mr-1">改时间</button>
             <button x-show="p.status==='failed'" @click="retryPost(p)" class="bg-amber-700 px-2 py-1 rounded text-sm mr-1">重发</button>
             <a x-show="p.screenshot_path" :href="'/api/screenshots/'+encodeURIComponent(p.screenshot_path.split('/').pop())" target="_blank" class="underline">截图</a>
           </td>
@@ -151,6 +152,12 @@ function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],a
     this.refresh()},
   async retryPost(p){if(!confirm('重新发布这条失败的视频？'))return;
     const r=await fetch('/api/posts/'+p.id+'/retry',{method:'POST'});
+    if(!r.ok){alert((await r.json()).detail||r.statusText);return}
+    this.refresh()},
+  async reschedule(p){const t=prompt('新的发布时间（如 2026-09-30 15:00，设为当前时间可立即发布）',p.scheduled_at.replace('T',' ').slice(0,16));
+    if(!t)return;
+    const r=await fetch('/api/posts/'+p.id,{method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scheduled_at:t})});
     if(!r.ok){alert((await r.json()).detail||r.statusText);return}
     this.refresh()}
 }}

@@ -26,6 +26,10 @@ class QueueReq(BaseModel):
     video_id: int
 
 
+class PostPatch(BaseModel):
+    scheduled_at: str
+
+
 class ConfigPatch(BaseModel):
     daily_limit: int | None = None
     interval_min_min: int | None = None
@@ -163,6 +167,24 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
     @app.get("/api/posts")
     def posts(status: str | None = None):
         return [asdict(p) for p in db.list_posts(status, limit=200)]
+
+    @app.patch("/api/posts/{post_id}")
+    def patch_post(post_id: int, body: PostPatch):
+        """修订排队帖子的发布时间；设为当下或过去即可被下个调度周期立即发出。"""
+        p = db.get_post(post_id)
+        if not p:
+            raise HTTPException(404, "帖子不存在")
+        if p.status != "queued":
+            raise HTTPException(400, f"帖子状态是 {p.status}，只能改排队中的时间")
+        # 宽松解析 "2026-09-30 15:00" / isoformat
+        s = body.scheduled_at.strip().replace(" ", "T")
+        try:
+            ts = datetime.fromisoformat(s if "T" in s else f"{s}T00:00:00")
+        except ValueError:
+            raise HTTPException(400, "时间格式不对，示例 2026-09-30 15:00")
+        p.scheduled_at = ts.isoformat(timespec="seconds")
+        db.update_post(p)
+        return {"ok": True, "scheduled_at": p.scheduled_at}
 
     @app.post("/api/posts/{post_id}/retry")
     def retry_post(post_id: int):
