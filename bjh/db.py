@@ -140,6 +140,18 @@ class DB:
         self.conn.execute("UPDATE topics SET status=? WHERE id=?", (status, topic_id))
         self.conn.commit()
 
+    def delete_topic(self, topic_id: int) -> None:
+        """删热榜条目；连带清掉其被拦截的文案（本就无法出片），其余记录保留。"""
+        self.conn.execute("DELETE FROM topics WHERE id=?", (topic_id,))
+        self.conn.execute("DELETE FROM drafts WHERE topic_id=? AND status='blocked'", (topic_id,))
+        self.conn.commit()
+
+    def blocked_draft_id(self, topic_id: int) -> int | None:
+        row = self.conn.execute(
+            "SELECT id FROM drafts WHERE topic_id=? AND status='blocked' LIMIT 1",
+            (topic_id,)).fetchone()
+        return row["id"] if row else None
+
     # ---- drafts ----
     def insert_draft(self, d: Draft) -> int:
         return self._insert("drafts", d)
@@ -154,6 +166,10 @@ class DB:
 
     def update_draft_title(self, draft_id: int, title: str) -> None:
         self.conn.execute("UPDATE drafts SET title=? WHERE id=?", (title, draft_id))
+        self.conn.commit()
+
+    def set_draft_status(self, draft_id: int, status: str) -> None:
+        self.conn.execute("UPDATE drafts SET status=? WHERE id=?", (status, draft_id))
         self.conn.commit()
 
     # ---- videos ----

@@ -114,3 +114,46 @@ def test_delete_video_ignores_files_outside_videos_dir(tmp_path, monkeypatch):
     outside = tmp_path / "outside.mp4"
     assert c.delete("/api/videos/1").json() == {"ok": True}
     assert db.get_video(1) is None and outside.parent.exists()
+
+
+def test_delete_topic_cascades_blocked_drafts(tmp_path, monkeypatch):
+    """删热榜条目：被拦截文案一并删，ok 文案及其话题保留。"""
+    db, c = make(tmp_path, monkeypatch)
+    t2 = Topic(keyword="养生", title="话题2", url="u2", source_author="a", reads=50,
+               comments=5, heat_score=2.0, fetched_at="2026-09-30T10:00:00")
+    db.insert_topic(t2)
+    d2 = Draft(topic_id=2, title="被拦截", script="s", tags=[], hook="", closing_question="",
+               model="m", cost=0.01, status="blocked", created_at="2026-09-30T10:00:00")
+    db.insert_draft(d2)
+    assert c.delete("/api/topics/2").json() == {"ok": True}
+    assert db.get_topic(2) is None and db.get_draft(2) is None
+    assert db.get_topic(1) is not None and db.get_draft(1) is not None
+    assert c.delete("/api/topics/2").status_code == 404
+
+
+def test_unblock_draft_rebuilds_video(tmp_path, monkeypatch):
+    import time as _t
+    import bjh.pipeline as pl
+    from bjh.server import api as api_mod
+    db, c = make(tmp_path, monkeypatch)
+    assert c.post("/api/drafts/999/unblock").status_code == 404
+    db.set_draft_status(1, "blocked")
+
+    calls: list[int] = []
+
+    class FakeVideo:
+        id = 42
+
+    async def fake_build(db_, cfg_, d_, t_):
+        calls.append(d_.id)
+        return FakeVideo()
+    monkeypatch.setattr(pl, "build_video", fake_build)
+
+    assert c.post("/api/drafts/1/unblock").status_code == 200
+    for _ in range(150):                     # 等后台 job 线程完成
+        if api_mod.JOB["running"] is None:
+            break
+        _t.sleep(0.02)
+    assert calls == [1] and db.get_draft(1).status == "ok"
+    assert api_mod.JOB["last"]["ok"] is True
+    assert c.post("/api/drafts/1/unblock").status_code == 400   # 非 blocked 拒绝

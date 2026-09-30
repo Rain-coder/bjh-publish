@@ -77,7 +77,19 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
 
     @app.get("/api/topics")
     def topics(keyword: str | None = None, limit: int = 50):
-        return [asdict(t) for t in db.list_topics(keyword, limit)]
+        out = []
+        for t in db.list_topics(keyword, limit):
+            d = asdict(t)
+            d["blocked_draft_id"] = db.blocked_draft_id(t.id)
+            out.append(d)
+        return out
+
+    @app.delete("/api/topics/{topic_id}")
+    def del_topic(topic_id: int):
+        if not db.get_topic(topic_id):
+            raise HTTPException(404, "话题不存在")
+        db.delete_topic(topic_id)
+        return {"ok": True}
 
     @app.get("/api/drafts")
     def drafts():
@@ -89,6 +101,29 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
             raise HTTPException(404, "draft 不存在")
         db.update_draft_title(draft_id, body.title)
         return {"ok": True}
+
+    @app.post("/api/drafts/{draft_id}/unblock")
+    def unblock_draft(draft_id: int):
+        """解除敏感词拦截：文案置 ok 并后台重建视频。"""
+        d = db.get_draft(draft_id)
+        if not d:
+            raise HTTPException(404, "文案不存在")
+        if d.status != "blocked":
+            raise HTTPException(400, f"文案状态是 {d.status}，无需解除")
+
+        def fn():
+            import asyncio
+            from bjh.pipeline import build_video
+            t = db.get_topic(d.topic_id)
+            if not t:
+                raise RuntimeError("话题已被删除，无法重建视频")
+            db.set_draft_status(draft_id, "ok")
+            db.set_topic_status(t.id, "selected")
+            video = asyncio.run(build_video(db, cfg, d, t))
+            if not video:
+                raise RuntimeError("视频重建失败，看日志")
+            return f"已解除拦截并重建视频 #{video.id}，可入队发布"
+        return _run_job(f"解除拦截:{draft_id}", fn)
 
     @app.get("/api/videos")
     def videos():

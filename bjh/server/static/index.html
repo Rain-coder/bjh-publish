@@ -42,6 +42,10 @@
           <td class="py-1" x-text="t.title"></td>
           <td x-text="'R'+t.reads"></td><td x-text="'C'+t.comments"></td>
           <td x-text="t.heat_score.toFixed(1)"></td><td x-text="t.status"></td>
+          <td>
+            <button x-show="t.blocked_draft_id" @click="unblock(t)" class="bg-amber-700 px-2 py-1 rounded text-sm mr-1">解除拦截</button>
+            <button @click="delTopic(t)" class="bg-red-900 px-2 py-1 rounded text-sm">删除</button>
+          </td>
         </tr></template>
       </tbody></table>
     </section>
@@ -133,7 +137,15 @@ function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],a
     const r=await fetch('/api/videos/'+v.id,{method:'DELETE'});
     if(!r.ok){alert((await r.json()).detail||r.statusText);return}
     this.refresh()},
-  async saveCfg(){await fetch('/api/config',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.c)})}
+  async saveCfg(){await fetch('/api/config',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.c)})},
+  async delTopic(t){if(!confirm('删除热榜「'+t.title+'」？被拦截的文案一并删除'))return;
+    const r=await fetch('/api/topics/'+t.id,{method:'DELETE'});
+    if(!r.ok){alert((await r.json()).detail||r.statusText);return}
+    this.refresh()},
+  async unblock(t){if(!confirm('解除「'+t.title+'」的文案拦截并重建视频？'))return;
+    const r=await fetch('/api/drafts/'+t.blocked_draft_id+'/unblock',{method:'POST'});
+    if(!r.ok){alert((await r.json()).detail||r.statusText);return}
+    this.refresh()}
 }}
 </script>
 </body></html>
