@@ -183,3 +183,27 @@ def test_retry_failed_post(tmp_path, monkeypatch):
     assert p2.status == "queued" and p2.error is None
     assert p2.scheduled_at >= "2026-09-29T10:00:00"            # 已重置为点击时刻
     assert c.post(f"/api/posts/{pid}/retry").status_code == 400  # 非 failed 拒绝
+
+
+def test_run_pipeline_publishes_one(tmp_path, monkeypatch):
+    """一键全流程：生成入队后立即触发一次发布，不再需要手动「立即发布」。"""
+    import time as _t
+    import bjh.pipeline as pl
+    import bjh.scheduler as sched
+    from bjh.server import api as api_mod
+    db, c = make(tmp_path, monkeypatch)
+    fired: list[str] = []
+    monkeypatch.setattr(pl, "run_pipeline",
+                        lambda *a, **k: fired.append("make") or [7])
+
+    async def fake_run(*a, **k):
+        fired.append("publish")
+        return "published"
+    monkeypatch.setattr(sched, "run_once", fake_run)
+    assert c.post("/api/run", json={"keyword": "养生"}).status_code == 200
+    for _ in range(150):
+        if api_mod.JOB["running"] is None:
+            break
+        _t.sleep(0.02)
+    assert fired == ["make", "publish"]
+    assert api_mod.JOB["last"]["ok"] and "已发布 1 条" in api_mod.JOB["last"]["result"]

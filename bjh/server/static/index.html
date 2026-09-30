@@ -126,7 +126,7 @@ function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],a
     await this.post('/api/create',{count:parseInt(n)||1})},
   async doPublish(){if(!confirm('立即发布最旧一条未发视频？（会弹出浏览器，含AI内容将如实申报）'))return;
     await this.post('/api/publish')},
-  async doRun(){const kw=prompt('关键词（抓→做→入队）');if(!kw)return;
+  async doRun(){const kw=prompt('关键词（抓→做→发一条，其余排队）');if(!kw)return;
     const n=prompt('产量几条？','1');if(!n)return;
     await this.post('/api/run',{keyword:kw,count:parseInt(n)||1,pages:1})},
   jobLine(){if(this.job.running)return '⏳ '+this.job.running+' 进行中…（页面会自动刷新结果）';

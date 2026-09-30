@@ -52,6 +52,13 @@ class RunReq(BaseModel):
 JOB = {"running": None, "started_at": None, "last": None}
 
 
+def _job_db(cfg) -> "DB":
+    """工作流端点共用的库句柄：data 目录可能不存在（换 cwd 启动/测试），先建。"""
+    p = Path(cfg.data_dir) / "bjh.db"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return DB(p)
+
+
 def _run_job(name: str, fn) -> dict:
     if JOB["running"]:
         raise HTTPException(409, f"任务进行中: {JOB['running']}，请等完成")
@@ -222,7 +229,7 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
     def fetch(body: FetchReq):
         def fn():
             from bjh.pipeline import fetch_and_store
-            n = fetch_and_store(DB(Path(cfg.data_dir) / "bjh.db"), body.keyword, body.pages, cfg)
+            n = fetch_and_store(_job_db(cfg), body.keyword, body.pages, cfg)
             return f"新增热文 {n} 条（{body.keyword}）"
         return _run_job(f"抓取:{body.keyword}", fn)
 
@@ -230,7 +237,7 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
     def create(body: CreateReq):
         def fn():
             from bjh.pipeline import create_videos
-            ids = create_videos(DB(Path(cfg.data_dir) / "bjh.db"), cfg, count=max(1, body.count))
+            ids = create_videos(_job_db(cfg), cfg, count=max(1, body.count))
             return f"生成视频 {len(ids)} 个: {ids or '（无可用选题/文案被拦截）'}"
         return _run_job("生成视频", fn)
 
@@ -238,7 +245,7 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
     def publish_now():
         def fn():
             from bjh.scheduler import run_once
-            jdb = DB(Path(cfg.data_dir) / "bjh.db")
+            jdb = _job_db(cfg)
             acc = jdb.get_account("default") or (jdb.list_accounts() or [None])[0]
             vids = [v["id"] for v in jdb.videos_with_titles(limit=500)
                     if v["status"] == "ok" and v["id"] not in
@@ -253,9 +260,16 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
     def run_all(body: RunReq):
         def fn():
             from bjh.pipeline import run_pipeline
-            ids = run_pipeline(DB(Path(cfg.data_dir) / "bjh.db"), cfg,
-                               body.keyword, count=max(1, body.count), pages=body.pages)
-            return f"流水线完成，视频 {ids} 已入队（用「立即发布」发出）"
+            from bjh.scheduler import run_once
+            jdb = _job_db(cfg)
+            ids = run_pipeline(jdb, cfg, body.keyword,
+                               count=max(1, body.count), pages=body.pages)
+            if not ids:
+                return "没有生成视频（无可用选题/文案被拦截）"
+            result = asyncio.run(run_once(jdb, cfg))       # 立即发最旧一条
+            rest = len(ids) - 1
+            return (f"流水线完成，视频 {ids}：已发布 1 条（{result}），"
+                    + (f"其余 {rest} 条排队等调度" if rest > 0 else "全部发完"))
         return _run_job(f"全流程:{body.keyword}", fn)
 
     @app.get("/api/job")
