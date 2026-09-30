@@ -210,14 +210,33 @@ def test_run_pipeline_publishes_one(tmp_path, monkeypatch):
 
 
 def test_patch_post_reschedule(tmp_path, monkeypatch):
+    import time as _t
+    import bjh.scheduler as sched
+    from bjh.server import api as api_mod
     db, c = make(tmp_path, monkeypatch)
     pid = db.queue_post(1, 1, "2026-09-30T10:00:00")
-    # 宽松格式解析
+    # 宽松格式解析（未来时间 → 不触发发布）
     r = c.patch(f"/api/posts/{pid}", json={"scheduled_at": "2026-10-01 09:05"})
-    assert r.json() == {"ok": True, "scheduled_at": "2026-10-01T09:05:00"}
+    assert r.json() == {"ok": True, "scheduled_at": "2026-10-01T09:05:00", "publishing": False}
     assert db.get_post(pid).scheduled_at == "2026-10-01T09:05:00"
     assert c.patch("/api/posts/999", json={"scheduled_at": "x"}).status_code == 404
     assert c.patch(f"/api/posts/{pid}", json={"scheduled_at": "乱写"}).status_code == 400
+
+    # 改为当下/过去 → 立即触发一次发布
+    fired: list[int] = []
+
+    async def fake_run(*a, **k):
+        fired.append(1)
+        return "published"
+    monkeypatch.setattr(sched, "run_once", fake_run)
+    assert c.patch(f"/api/posts/{pid}",
+                   json={"scheduled_at": "2026-09-29 00:00"}).json()["publishing"] is True
+    for _ in range(150):
+        if api_mod.JOB["running"] is None:
+            break
+        _t.sleep(0.02)
+    assert fired == [1]
+
     # 非 queued 不可改
     p = db.get_post(pid)
     p.status = "published"

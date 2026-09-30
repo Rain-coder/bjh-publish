@@ -83,8 +83,32 @@ def _run_job(name: str, fn) -> dict:
     return {"started": name}
 
 
+def _scheduler_loop(cfg: Config) -> None:
+    """面板内常驻调度：每 60s 查到期帖子，空闲则发布（不用再单开 bjh publish --daemon）。"""
+    import time as _t
+
+    def loop():
+        while True:
+            _t.sleep(60)
+            try:
+                if JOB["running"]:
+                    continue
+                if _job_db(cfg).due_posts(datetime.now().isoformat(timespec="seconds")):
+                    def fn():
+                        from bjh.scheduler import run_once
+                        return asyncio.run(run_once(_job_db(cfg), cfg))
+                    _run_job("定时发布", fn)          # 撞锁会 409，下轮再试
+            except HTTPException:
+                pass
+            except Exception:
+                pass                                  # 调度循环永不退出
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
 def create_app(db: DB, cfg: Config) -> FastAPI:
     app = FastAPI(title="bjh")
+    _scheduler_loop(cfg)
 
     @app.get("/api/topics")
     def topics(keyword: str | None = None, limit: int = 50):
@@ -184,7 +208,16 @@ def create_app(db: DB, cfg: Config) -> FastAPI:
             raise HTTPException(400, "时间格式不对，示例 2026-09-30 15:00")
         p.scheduled_at = ts.isoformat(timespec="seconds")
         db.update_post(p)
-        return {"ok": True, "scheduled_at": p.scheduled_at}
+        now_publish = ts <= datetime.now()
+        if now_publish:      # 时间设为当下/过去 = 想现在发，直接触发（有任务在跑则等调度线程）
+            def fn():
+                from bjh.scheduler import run_once
+                return asyncio.run(run_once(db, cfg))
+            try:
+                _run_job(f"立即发布:{post_id}", fn)
+            except HTTPException:
+                pass
+        return {"ok": True, "scheduled_at": p.scheduled_at, "publishing": now_publish}
 
     @app.post("/api/posts/{post_id}/retry")
     def retry_post(post_id: int):

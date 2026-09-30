@@ -159,6 +159,8 @@ function panel(){return{tab:'stats',kw:'',hint:'',topics:[],videos:[],posts:[],a
     const r=await fetch('/api/posts/'+p.id,{method:'PATCH',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({scheduled_at:t})});
     if(!r.ok){alert((await r.json()).detail||r.statusText);return}
+    const d=await r.json();
+    if(d.publishing)alert('时间已到，已触发立即发布（结果看顶部任务栏）');
     this.refresh()}
 }}
 </script>
